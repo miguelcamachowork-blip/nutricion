@@ -12,6 +12,16 @@ import type {
   UnitType,
 } from "@/lib/types";
 
+/** A locally-stored automatic backup (rolling, max 7). */
+export interface AutoBackupRow {
+  id: string;
+  createdAt: number;
+  /** Stringified `FullBackup` JSON. */
+  payload: string;
+  /** Approximate size in bytes (length of `payload`). */
+  size: number;
+}
+
 export class NutricionDB extends Dexie {
   profiles!: Table<Profile, string>;
   groups!: Table<FoodGroup, string>;
@@ -23,6 +33,7 @@ export class NutricionDB extends Dexie {
   quantityOptions!: Table<QuantityOption, string>;
   planSnapshots!: Table<PlanSnapshot, string>;
   recipeSnapshots!: Table<RecipeSnapshot, string>;
+  backups!: Table<AutoBackupRow, string>;
 
   constructor() {
     super("nutricion-mcz");
@@ -163,6 +174,22 @@ export class NutricionDB extends Dexie {
           });
         }
       });
+
+    // v4 — Adds the `backups` table for in-app rolling auto-backups.
+    this.version(4).stores({
+      profiles: "id, name, createdAt",
+      groups: "id, profileId, [profileId+order], [profileId+key]",
+      foods: "id, profileId, groupId, [profileId+groupId]",
+      meals: "id, profileId, [profileId+order]",
+      planCells: "id, profileId, mealId, groupId, [profileId+mealId+groupId]",
+      recipes: "id, profileId, mealId, [profileId+mealId]",
+      unitTypes: "id, profileId, [profileId+order]",
+      quantityOptions: "id, profileId, [profileId+order]",
+      planSnapshots: "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      recipeSnapshots:
+        "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      backups: "id, createdAt",
+    });
   }
 }
 

@@ -13,7 +13,6 @@ import {
   ChefHat,
   ListChecks,
   Settings,
-  Salad,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
@@ -50,8 +49,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-4 lg:px-5 py-5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius)] bg-gradient-to-br from-[var(--primary)] to-[var(--primary-700)] text-[var(--primary-foreground)] shadow-[var(--shadow-sm)]">
-            <Salad className="h-5 w-5" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius)] bg-white shadow-[var(--shadow-sm)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="" className="h-full w-full object-contain" />
           </div>
           <div className="hidden lg:block min-w-0">
             <p className="text-sm font-semibold leading-none">Nutrición</p>
@@ -151,8 +151,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--primary)] to-[var(--primary-700)] text-[var(--primary-foreground)] shadow-sm">
-            <Salad className="h-4 w-4" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-white shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="" className="h-full w-full object-contain" />
           </div>
           <p className="text-sm font-semibold truncate">Nutrición MCZ</p>
         </div>

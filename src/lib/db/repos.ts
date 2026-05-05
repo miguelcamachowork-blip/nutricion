@@ -141,6 +141,21 @@ export async function deleteGroup(id: ID): Promise<void> {
   });
 }
 
+/** Persist a new ordering for the given group ids (in the desired order). */
+export async function reorderGroups(
+  profileId: ID,
+  orderedIds: ID[],
+): Promise<void> {
+  const db = getDB();
+  await db.transaction("rw", db.groups, async () => {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        db.groups.update(id, { order: idx, profileId }),
+      ),
+    );
+  });
+}
+
 // ─── Foods ────────────────────────────────────────────────────────────────
 
 export async function listFoods(profileId: ID): Promise<Food[]> {
@@ -597,4 +612,184 @@ export async function importRecipes(
     );
     await snapshotRecipesWithinTx(profileId);
   });
+}
+
+// ─── Full backup (all profiles, no historical snapshots) ──────────────────
+//
+// The "full backup" is the user's portable data: every profile and its
+// catalog/plan/recipes. It deliberately excludes `planSnapshots` and
+// `recipeSnapshots`, which are *device-local history*. Restoring a backup
+// on a different device must not pollute that device's history.
+
+export const FULL_BACKUP_VERSION = 1 as const;
+
+export interface FullBackup {
+  kind: "nutricion-mcz/full";
+  version: typeof FULL_BACKUP_VERSION;
+  exportedAt: string;
+  profiles: Profile[];
+  groups: FoodGroup[];
+  foods: Food[];
+  meals: Meal[];
+  planCells: PlanCell[];
+  recipes: Recipe[];
+  unitTypes: UnitType[];
+  quantityOptions: QuantityOption[];
+}
+
+export interface BackupCounts {
+  profiles: number;
+  groups: number;
+  foods: number;
+  meals: number;
+  planCells: number;
+  recipes: number;
+  unitTypes: number;
+  quantityOptions: number;
+}
+
+export function backupCounts(b: FullBackup): BackupCounts {
+  return {
+    profiles: b.profiles.length,
+    groups: b.groups.length,
+    foods: b.foods.length,
+    meals: b.meals.length,
+    planCells: b.planCells.length,
+    recipes: b.recipes.length,
+    unitTypes: b.unitTypes.length,
+    quantityOptions: b.quantityOptions.length,
+  };
+}
+
+/** Snapshot of every user-editable table across all profiles. */
+export async function exportAllData(): Promise<FullBackup> {
+  const db = getDB();
+  const [
+    profiles,
+    groups,
+    foods,
+    meals,
+    planCells,
+    recipes,
+    unitTypes,
+    quantityOptions,
+  ] = await Promise.all([
+    db.profiles.toArray(),
+    db.groups.toArray(),
+    db.foods.toArray(),
+    db.meals.toArray(),
+    db.planCells.toArray(),
+    db.recipes.toArray(),
+    db.unitTypes.toArray(),
+    db.quantityOptions.toArray(),
+  ]);
+  return {
+    kind: "nutricion-mcz/full",
+    version: FULL_BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    profiles,
+    groups,
+    foods,
+    meals,
+    planCells,
+    recipes,
+    unitTypes,
+    quantityOptions,
+  };
+}
+
+/** Validates the shape of a parsed JSON object. Throws on mismatch. */
+export function assertFullBackup(value: unknown): asserts value is FullBackup {
+  if (!value || typeof value !== "object") {
+    throw new Error("El archivo no es un respaldo válido.");
+  }
+  const v = value as Partial<FullBackup>;
+  if (v.kind !== "nutricion-mcz/full") {
+    throw new Error("El archivo no es un respaldo de Nutrición MCZ.");
+  }
+  if (typeof v.version !== "number") {
+    throw new Error("El respaldo no declara versión.");
+  }
+  if (v.version > FULL_BACKUP_VERSION) {
+    throw new Error(
+      `El respaldo es de una versión más reciente (v${v.version}) que esta app (v${FULL_BACKUP_VERSION}). Actualiza la app para abrirlo.`,
+    );
+  }
+  const tables: (keyof FullBackup)[] = [
+    "profiles",
+    "groups",
+    "foods",
+    "meals",
+    "planCells",
+    "recipes",
+    "unitTypes",
+    "quantityOptions",
+  ];
+  for (const t of tables) {
+    if (!Array.isArray(v[t])) {
+      throw new Error(`El respaldo está incompleto: falta "${t}".`);
+    }
+  }
+}
+
+export type ImportMode = "replace" | "merge";
+
+/**
+ * Restores a full backup.
+ *   - "replace" wipes the eight user-editable tables across ALL profiles
+ *     before bulk-inserting the backup. Device-local snapshots are NOT
+ *     touched.
+ *   - "merge" performs an upsert by id (last-wins) and adds new rows.
+ */
+export async function importAllData(
+  data: FullBackup,
+  opts: { mode: ImportMode } = { mode: "replace" },
+): Promise<BackupCounts> {
+  assertFullBackup(data);
+  const db = getDB();
+  await db.transaction(
+    "rw",
+    [
+      db.profiles,
+      db.groups,
+      db.foods,
+      db.meals,
+      db.planCells,
+      db.recipes,
+      db.unitTypes,
+      db.quantityOptions,
+    ],
+    async () => {
+      if (opts.mode === "replace") {
+        await Promise.all([
+          db.profiles.clear(),
+          db.groups.clear(),
+          db.foods.clear(),
+          db.meals.clear(),
+          db.planCells.clear(),
+          db.recipes.clear(),
+          db.unitTypes.clear(),
+          db.quantityOptions.clear(),
+        ]);
+        await db.profiles.bulkAdd(data.profiles);
+        await db.groups.bulkAdd(data.groups);
+        await db.foods.bulkAdd(data.foods);
+        await db.meals.bulkAdd(data.meals);
+        await db.planCells.bulkAdd(data.planCells);
+        await db.recipes.bulkAdd(data.recipes);
+        await db.unitTypes.bulkAdd(data.unitTypes);
+        await db.quantityOptions.bulkAdd(data.quantityOptions);
+      } else {
+        await db.profiles.bulkPut(data.profiles);
+        await db.groups.bulkPut(data.groups);
+        await db.foods.bulkPut(data.foods);
+        await db.meals.bulkPut(data.meals);
+        await db.planCells.bulkPut(data.planCells);
+        await db.recipes.bulkPut(data.recipes);
+        await db.unitTypes.bulkPut(data.unitTypes);
+        await db.quantityOptions.bulkPut(data.quantityOptions);
+      }
+    },
+  );
+  return backupCounts(data);
 }

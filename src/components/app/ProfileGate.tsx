@@ -17,14 +17,19 @@ import {
   DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ChevronRight, Pencil, Salad, Trash2, UserPlus, Users } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
+import { requestPersistentStorage } from "@/lib/storage/persist";
+import { useAutoBackup } from "@/lib/storage/autoBackup";
 
 export function ProfileGate({ children }: { children: React.ReactNode }) {
   const profiles = useLiveQuery(() => listProfiles(), []);
   const { activeProfileId, setActive } = useActiveProfileStore();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+
+  // Daily rolling auto-backup (kept inside IndexedDB).
+  useAutoBackup();
 
   useEffect(() => {
     if (
@@ -35,6 +40,14 @@ export function ProfileGate({ children }: { children: React.ReactNode }) {
       setActive(null);
     }
   }, [profiles, activeProfileId, setActive]);
+
+  // Once the user has a profile, ask the browser to keep our IndexedDB
+  // around. This is best-effort: browsers may grant or deny silently.
+  useEffect(() => {
+    if (activeProfileId) {
+      void requestPersistentStorage();
+    }
+  }, [activeProfileId]);
 
   if (!profiles) {
     return (
@@ -66,8 +79,9 @@ export function ProfileGate({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-8 px-4 py-12">
         {/* Hero */}
         <div className="text-center animate-fade-in">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-700)] text-[var(--primary-foreground)] shadow-[var(--shadow-lg)]">
-            <Salad className="h-7 w-7" />
+          <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lg)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="Nutrición MCZ" className="h-full w-full object-contain" />
           </div>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">
             Nutrición MCZ

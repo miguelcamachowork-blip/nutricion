@@ -4,15 +4,21 @@
   "description": "Plan alimenticio personalizado por porciones",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fafaf7",
+  "background_color": "#ffffff",
   "theme_color": "#15803d",
   "lang": "es-MX",
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

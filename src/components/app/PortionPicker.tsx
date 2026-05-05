@@ -49,7 +49,7 @@ export function PortionPicker({
         <Popover.Content
           align="center"
           sideOffset={6}
-          className="z-50 w-56 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-2 shadow-[var(--shadow-lg)]"
+          className="z-50 w-56 rounded-xl border border-[var(--border)] bg-[var(--primary-50)] p-2 shadow-[var(--shadow-lg)]"
         >
           <div className="mb-1 px-1 text-xs text-[var(--muted-foreground)]">
             Selecciona porción

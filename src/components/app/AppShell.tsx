@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import {
   Apple,
+  Ban,
   CalendarDays,
   ChefHat,
   ListChecks,
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/dia", label: "Plan del día", icon: ChefHat },
   { href: "/plan", label: "Plan", icon: ListChecks },
   { href: "/alimentos", label: "Alimentos", icon: Apple },
+  { href: "/prohibidos", label: "Prohibidos", icon: Ban },
   { href: "/historico", label: "Histórico", icon: CalendarDays },
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
@@ -49,7 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-4 lg:px-5 py-5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius)] bg-white shadow-[var(--shadow-sm)]">
+          <div className="flex h-[6.703125rem] w-[6.703125rem] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius)] bg-white shadow-[var(--shadow-sm)]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.png" alt="" className="h-full w-full object-contain" />
           </div>
@@ -151,7 +153,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-white shadow-sm">
+          <div className="flex h-[6.09375rem] w-[6.09375rem] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-white shadow-sm">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.png" alt="" className="h-full w-full object-contain" />
           </div>

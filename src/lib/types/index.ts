@@ -28,6 +28,8 @@ export interface FoodGroup {
   label: string;
   order: number;
   removable: boolean;
+  /** Optional note shown under the group title and as a footnote in recipes. */
+  note?: string;
 }
 
 export interface Food {
@@ -55,6 +57,25 @@ export interface QuantityOption {
   profileId: ID;
   value: number;
   order: number;
+}
+
+export type ForbiddenKind = "food" | "group" | "custom";
+
+/**
+ * A "forbidden" item for a profile. Three kinds:
+ *   - "food":    `ref` is a Food ID.
+ *   - "group":   `ref` is a FoodGroup ID.
+ *   - "custom":  free-text label not in the catalog (e.g. "canela").
+ */
+export interface ForbiddenItem {
+  id: ID;
+  profileId: ID;
+  kind: ForbiddenKind;
+  /** Food or Group ID when applicable. Undefined for "custom". */
+  ref?: ID;
+  /** Free text for "custom"; optional override for food/group display. */
+  label?: string;
+  createdAt: number;
 }
 
 export interface Meal {

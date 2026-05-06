@@ -4,6 +4,7 @@ import { SEED_FOODS, makeSeedFor } from "@/lib/seed";
 import type {
   Food,
   FoodGroup,
+  ForbiddenItem,
   ID,
   Meal,
   PlanCell,
@@ -112,6 +113,11 @@ export async function listGroups(profileId: ID): Promise<FoodGroup[]> {
 
 export async function renameGroup(id: ID, label: string): Promise<void> {
   await getDB().groups.update(id, { label });
+}
+
+export async function updateGroupNote(id: ID, note: string): Promise<void> {
+  const trimmed = note.trim();
+  await getDB().groups.update(id, { note: trimmed === "" ? undefined : trimmed });
 }
 
 export async function addGroup(
@@ -273,6 +279,99 @@ export async function deleteQuantity(id: ID): Promise<void> {
     );
   }
   await db.quantityOptions.delete(id);
+}
+
+// ─── Forbidden items ──────────────────────────────────────────────────────
+
+export async function listForbidden(profileId: ID): Promise<ForbiddenItem[]> {
+  const all = await getDB()
+    .forbiddenItems.where("profileId")
+    .equals(profileId)
+    .toArray();
+  return all.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function addForbiddenFood(
+  profileId: ID,
+  foodId: ID,
+): Promise<ForbiddenItem | null> {
+  const existing = await listForbidden(profileId);
+  if (existing.some((it) => it.kind === "food" && it.ref === foodId))
+    return null;
+  const item: ForbiddenItem = {
+    id: uid(),
+    profileId,
+    kind: "food",
+    ref: foodId,
+    createdAt: Date.now(),
+  };
+  await getDB().forbiddenItems.add(item);
+  return item;
+}
+
+export async function addForbiddenGroup(
+  profileId: ID,
+  groupId: ID,
+): Promise<ForbiddenItem | null> {
+  const existing = await listForbidden(profileId);
+  if (existing.some((it) => it.kind === "group" && it.ref === groupId))
+    return null;
+  const item: ForbiddenItem = {
+    id: uid(),
+    profileId,
+    kind: "group",
+    ref: groupId,
+    createdAt: Date.now(),
+  };
+  await getDB().forbiddenItems.add(item);
+  return item;
+}
+
+export async function addForbiddenCustom(
+  profileId: ID,
+  label: string,
+): Promise<ForbiddenItem | null> {
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  const existing = await listForbidden(profileId);
+  const lower = trimmed.toLowerCase();
+  if (
+    existing.some(
+      (it) => it.kind === "custom" && (it.label ?? "").toLowerCase() === lower,
+    )
+  ) {
+    return null;
+  }
+  const item: ForbiddenItem = {
+    id: uid(),
+    profileId,
+    kind: "custom",
+    label: trimmed,
+    createdAt: Date.now(),
+  };
+  await getDB().forbiddenItems.add(item);
+  return item;
+}
+
+export async function deleteForbidden(id: ID): Promise<void> {
+  await getDB().forbiddenItems.delete(id);
+}
+
+/** Sets of vetoed group/food IDs, plus the list of free-text custom labels. */
+export function partitionForbidden(items: ForbiddenItem[]): {
+  groupIds: Set<string>;
+  foodIds: Set<string>;
+  customs: ForbiddenItem[];
+} {
+  const groupIds = new Set<string>();
+  const foodIds = new Set<string>();
+  const customs: ForbiddenItem[] = [];
+  for (const it of items) {
+    if (it.kind === "group" && it.ref) groupIds.add(it.ref);
+    else if (it.kind === "food" && it.ref) foodIds.add(it.ref);
+    else if (it.kind === "custom") customs.push(it);
+  }
+  return { groupIds, foodIds, customs };
 }
 
 // ─── Meals ────────────────────────────────────────────────────────────────
@@ -505,6 +604,7 @@ export interface CatalogExport {
   foods: Food[];
   units: UnitType[];
   quantities: QuantityOption[];
+  forbidden?: ForbiddenItem[];
 }
 
 export interface PlanExport {
@@ -528,6 +628,7 @@ export async function exportCatalog(profileId: ID): Promise<CatalogExport> {
     foods: await listFoods(profileId),
     units: await listUnits(profileId),
     quantities: await listQuantities(profileId),
+    forbidden: await listForbidden(profileId),
   };
 }
 
@@ -557,12 +658,13 @@ export async function importCatalog(
   const db = getDB();
   await db.transaction(
     "rw",
-    [db.groups, db.foods, db.unitTypes, db.quantityOptions],
+    [db.groups, db.foods, db.unitTypes, db.quantityOptions, db.forbiddenItems],
     async () => {
       await db.groups.where({ profileId }).delete();
       await db.foods.where({ profileId }).delete();
       await db.unitTypes.where({ profileId }).delete();
       await db.quantityOptions.where({ profileId }).delete();
+      await db.forbiddenItems.where({ profileId }).delete();
       await db.groups.bulkAdd(
         data.groups.map((g) => ({ ...g, profileId })),
       );
@@ -573,6 +675,11 @@ export async function importCatalog(
       await db.quantityOptions.bulkAdd(
         data.quantities.map((q) => ({ ...q, profileId })),
       );
+      if (Array.isArray(data.forbidden) && data.forbidden.length > 0) {
+        await db.forbiddenItems.bulkAdd(
+          data.forbidden.map((it) => ({ ...it, profileId })),
+        );
+      }
     },
   );
 }
@@ -635,6 +742,8 @@ export interface FullBackup {
   recipes: Recipe[];
   unitTypes: UnitType[];
   quantityOptions: QuantityOption[];
+  /** Optional for backwards compatibility with v1 backups that predate the field. */
+  forbiddenItems?: ForbiddenItem[];
 }
 
 export interface BackupCounts {
@@ -646,6 +755,7 @@ export interface BackupCounts {
   recipes: number;
   unitTypes: number;
   quantityOptions: number;
+  forbiddenItems: number;
 }
 
 export function backupCounts(b: FullBackup): BackupCounts {
@@ -658,6 +768,7 @@ export function backupCounts(b: FullBackup): BackupCounts {
     recipes: b.recipes.length,
     unitTypes: b.unitTypes.length,
     quantityOptions: b.quantityOptions.length,
+    forbiddenItems: b.forbiddenItems?.length ?? 0,
   };
 }
 
@@ -673,6 +784,7 @@ export async function exportAllData(): Promise<FullBackup> {
     recipes,
     unitTypes,
     quantityOptions,
+    forbiddenItems,
   ] = await Promise.all([
     db.profiles.toArray(),
     db.groups.toArray(),
@@ -682,6 +794,7 @@ export async function exportAllData(): Promise<FullBackup> {
     db.recipes.toArray(),
     db.unitTypes.toArray(),
     db.quantityOptions.toArray(),
+    db.forbiddenItems.toArray(),
   ]);
   return {
     kind: "nutricion-mcz/full",
@@ -695,6 +808,7 @@ export async function exportAllData(): Promise<FullBackup> {
     recipes,
     unitTypes,
     quantityOptions,
+    forbiddenItems,
   };
 }
 
@@ -758,8 +872,10 @@ export async function importAllData(
       db.recipes,
       db.unitTypes,
       db.quantityOptions,
+      db.forbiddenItems,
     ],
     async () => {
+      const forbidden = data.forbiddenItems ?? [];
       if (opts.mode === "replace") {
         await Promise.all([
           db.profiles.clear(),
@@ -770,6 +886,7 @@ export async function importAllData(
           db.recipes.clear(),
           db.unitTypes.clear(),
           db.quantityOptions.clear(),
+          db.forbiddenItems.clear(),
         ]);
         await db.profiles.bulkAdd(data.profiles);
         await db.groups.bulkAdd(data.groups);
@@ -779,6 +896,7 @@ export async function importAllData(
         await db.recipes.bulkAdd(data.recipes);
         await db.unitTypes.bulkAdd(data.unitTypes);
         await db.quantityOptions.bulkAdd(data.quantityOptions);
+        if (forbidden.length > 0) await db.forbiddenItems.bulkAdd(forbidden);
       } else {
         await db.profiles.bulkPut(data.profiles);
         await db.groups.bulkPut(data.groups);
@@ -788,6 +906,7 @@ export async function importAllData(
         await db.recipes.bulkPut(data.recipes);
         await db.unitTypes.bulkPut(data.unitTypes);
         await db.quantityOptions.bulkPut(data.quantityOptions);
+        if (forbidden.length > 0) await db.forbiddenItems.bulkPut(forbidden);
       }
     },
   );

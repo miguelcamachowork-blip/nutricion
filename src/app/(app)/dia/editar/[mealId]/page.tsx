@@ -7,23 +7,26 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   getRecipeForMeal,
   listFoods,
+  listForbidden,
   listGroups,
   listMeals,
   listPlan,
   listQuantities,
   listUnits,
+  partitionForbidden,
   upsertRecipe,
 } from "@/lib/db/repos";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import { Badge, Button, Card, Select } from "@/components/ui/primitives";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { getGroupColor } from "@/lib/ui/groupColor";
 import {
   amountToPortions,
   formatPortion,
   recipePortionsByGroup,
 } from "@/lib/balance";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
-import type { Food, FoodGroup, RecipeItem, UnitType } from "@/lib/types";
+import { ArrowLeft, Ban, Plus, Trash2 } from "lucide-react";
+import type { Food, FoodGroup, ForbiddenItem, RecipeItem, UnitType } from "@/lib/types";
 
 export default function EditarRecetaPage({
   params,
@@ -47,6 +50,8 @@ export default function EditarRecetaPage({
   const quantities =
     useLiveQuery(() => listQuantities(profileId), [profileId]) ?? [];
   const plan = useLiveQuery(() => listPlan(profileId), [profileId]) ?? [];
+  const forbidden =
+    useLiveQuery(() => listForbidden(profileId), [profileId]) ?? [];
   const existing = useLiveQuery(
     async () => (await getRecipeForMeal(profileId, mealId)) ?? null,
     [profileId, mealId],
@@ -136,6 +141,7 @@ export default function EditarRecetaPage({
       units={units}
       quantities={quantities}
       plan={plan}
+      forbidden={forbidden}
       initialItems={existing ? existing.items : []}
       onSaved={() => router.push("/dia")}
     />
@@ -151,6 +157,7 @@ function EditorBody({
   units,
   quantities,
   plan,
+  forbidden,
   initialItems,
   onSaved,
 }: {
@@ -162,12 +169,18 @@ function EditorBody({
   units: UnitType[];
   quantities: { id: string; value: number }[];
   plan: { mealId: string; groupId: string; portions: number }[];
+  forbidden: ForbiddenItem[];
   initialItems: RecipeItem[];
   onSaved: () => void;
 }) {
   const [items, setItems] = useState<RecipeItem[]>(() => [...initialItems]);
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
 
   const foodById = useMemo(() => new Map(foods.map((f) => [f.id, f])), [foods]);
+  const { groupIds: forbiddenGroupIds, foodIds: forbiddenFoodIds } = useMemo(
+    () => partitionForbidden(forbidden),
+    [forbidden],
+  );
   const planByGroup = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of plan) {
@@ -184,8 +197,35 @@ function EditorBody({
   }, [items, foodById, profileId, mealId]);
 
   const visibleGroups = groups.filter(
-    (g) => (planByGroup.get(g.id) ?? 0) > 0 || hasItemInGroup(items, g.id, foodById),
+    (g) =>
+      !forbiddenGroupIds.has(g.id) &&
+      ((planByGroup.get(g.id) ?? 0) > 0 || hasItemInGroup(items, g.id, foodById)),
   );
+
+  const incompleteGroups = useMemo(
+    () =>
+      visibleGroups
+        .map((g) => ({
+          group: g,
+          planned: planByGroup.get(g.id) ?? 0,
+          aported: aported.get(g.id) ?? 0,
+        }))
+        .filter((x) => x.planned > 0 && x.aported < x.planned - 0.01),
+    [visibleGroups, planByGroup, aported],
+  );
+
+  const doSave = async () => {
+    await upsertRecipe(profileId, mealId, items);
+    onSaved();
+  };
+
+  const handleSaveClick = () => {
+    if (incompleteGroups.length > 0) {
+      setSaveConfirmOpen(true);
+    } else {
+      void doSave();
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5 sm:px-6 sm:py-6">
@@ -205,10 +245,7 @@ function EditorBody({
             </p>
           </div>
           <Button
-            onClick={async () => {
-              await upsertRecipe(profileId, mealId, items);
-              onSaved();
-            }}
+            onClick={handleSaveClick}
           >
             Guardar
           </Button>
@@ -233,6 +270,7 @@ function EditorBody({
             planned={planByGroup.get(g.id) ?? 0}
             aported={aported.get(g.id) ?? 0}
             foods={foods.filter((f) => f.groupId === g.id)}
+            forbiddenFoodIds={forbiddenFoodIds}
             units={units}
             quantities={quantities}
             items={items.filter((it) => foodById.get(it.foodId)?.groupId === g.id)}
@@ -249,6 +287,43 @@ function EditorBody({
           />
         ))}
       </div>
+
+      <Dialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
+        <DialogContent
+          title="Porciones incompletas"
+          description="Los siguientes grupos no alcanzan la porción planeada:"
+        >
+          <ul className="space-y-1 text-sm">
+            {incompleteGroups.map(({ group, planned, aported }) => (
+              <li
+                key={group.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--card-2)] px-3 py-2"
+              >
+                <span className="font-medium">{group.label}</span>
+                <span className="tabular-nums text-[var(--muted-foreground)]">
+                  {formatPortion(aported)} / {formatPortion(planned)} porc.
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setSaveConfirmOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={async () => {
+                setSaveConfirmOpen(false);
+                await doSave();
+              }}
+            >
+              Guardar de todos modos
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -266,6 +341,7 @@ function GroupEditor({
   planned,
   aported,
   foods,
+  forbiddenFoodIds,
   units,
   quantities,
   items,
@@ -276,6 +352,7 @@ function GroupEditor({
   planned: number;
   aported: number;
   foods: Food[];
+  forbiddenFoodIds: Set<string>;
   units: UnitType[];
   quantities: { id: string; value: number }[];
   items: RecipeItem[];
@@ -284,8 +361,15 @@ function GroupEditor({
 }) {
   const [foodId, setFoodId] = useState<string>("");
   const [amountStr, setAmountStr] = useState<string>("");
+  const [pendingAdd, setPendingAdd] = useState<{
+    item: RecipeItem;
+    addPortions: number;
+    nextAported: number;
+    foodName: string;
+  } | null>(null);
 
-  const selectedFoodId = foodId || foods[0]?.id || "";
+  const selectableFoods = foods.filter((f) => !forbiddenFoodIds.has(f.id));
+  const selectedFoodId = foodId || selectableFoods[0]?.id || "";
   const food = foods.find((f) => f.id === selectedFoodId);
   const unit = food && units.find((u) => u.id === food.unitId);
   const tone =
@@ -301,6 +385,28 @@ function GroupEditor({
     : aported > 0
       ? 100
       : 0;
+
+  const tryAdd = () => {
+    const amount = Number(amountStr);
+    if (!selectedFoodId || !food || !Number.isFinite(amount) || amount <= 0)
+      return;
+    const addPortions = amountToPortions(amount, food);
+    const nextAported = aported + addPortions;
+    const item: RecipeItem = { foodId: selectedFoodId, amount };
+    if (planned > 0 && nextAported > planned + 0.01) {
+      setPendingAdd({ item, addPortions, nextAported, foodName: food.name });
+      return;
+    }
+    onAdd(item);
+    setAmountStr("");
+  };
+
+  const confirmAdd = () => {
+    if (!pendingAdd) return;
+    onAdd(pendingAdd.item);
+    setPendingAdd(null);
+    setAmountStr("");
+  };
 
   return (
     <Card variant="elevated" className="overflow-hidden border-l-4" style={{ borderLeftColor: color }}>
@@ -332,12 +438,22 @@ function GroupEditor({
             const f = foods.find((x) => x.id === it.foodId);
             const u = f && units.find((x) => x.id === f.unitId);
             const p = f ? amountToPortions(it.amount, f) : 0;
+            const isForbidden = forbiddenFoodIds.has(it.foodId);
             return (
               <li
                 key={i}
                 className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--card-2)] px-3 py-2 text-sm"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex items-center gap-2">
+                  {isForbidden && (
+                    <span
+                      title="Este alimento ahora está vetado. Elimínalo de la receta."
+                      className="inline-flex items-center gap-1 rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--danger-soft-fg)]"
+                    >
+                      <Ban className="h-3 w-3" />
+                      Prohibido
+                    </span>
+                  )}
                   <span className="font-medium">{f?.name ?? "—"}</span>
                   <span className="text-[var(--muted-foreground)]">
                     {" · "}
@@ -361,13 +477,29 @@ function GroupEditor({
         </ul>
       )}
 
-      {foods.length === 0 ? (
+      {selectableFoods.length === 0 ? (
         <div className="px-4 sm:px-5 py-3 text-sm text-[var(--muted-foreground)]">
-          No hay alimentos en este grupo.{" "}
-          <Link href="/alimentos" className="text-[var(--primary)] underline underline-offset-2">
-            Añade uno
-          </Link>
-          .
+          {foods.length === 0 ? (
+            <>
+              No hay alimentos en este grupo.{" "}
+              <Link href="/alimentos" className="text-[var(--primary)] underline underline-offset-2">
+                Añade uno
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              Todos los alimentos de este grupo están vetados. Revisa la
+              sección{" "}
+              <Link
+                href="/prohibidos"
+                className="text-[var(--primary)] underline underline-offset-2"
+              >
+                Prohibidos
+              </Link>
+              .
+            </>
+          )}
         </div>
       ) : (
         <div className="mt-3 px-4 sm:px-5 pb-4">
@@ -398,7 +530,7 @@ function GroupEditor({
                     value={selectedFoodId}
                     onChange={(e) => setFoodId(e.target.value)}
                   >
-                    {foods.map((f) => (
+                    {selectableFoods.map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.name}
                       </option>
@@ -438,12 +570,7 @@ function GroupEditor({
                 <td>
                   <Button
                     disabled={!selectedFoodId || !amountStr}
-                    onClick={() => {
-                      const amount = Number(amountStr);
-                      if (!selectedFoodId || !Number.isFinite(amount) || amount <= 0) return;
-                      onAdd({ foodId: selectedFoodId, amount });
-                      setAmountStr("");
-                    }}
+                    onClick={tryAdd}
                   >
                     <Plus className="h-4 w-4" />
                     Añadir
@@ -462,7 +589,7 @@ function GroupEditor({
                 value={selectedFoodId}
                 onChange={(e) => setFoodId(e.target.value)}
               >
-                {foods.map((f) => (
+                {selectableFoods.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
                   </option>
@@ -507,12 +634,7 @@ function GroupEditor({
             <Button
               className="col-span-2"
               disabled={!selectedFoodId || !amountStr}
-              onClick={() => {
-                const amount = Number(amountStr);
-                if (!selectedFoodId || !Number.isFinite(amount) || amount <= 0) return;
-                onAdd({ foodId: selectedFoodId, amount });
-                setAmountStr("");
-              }}
+              onClick={tryAdd}
             >
               <Plus className="h-4 w-4" />
               Añadir
@@ -520,6 +642,29 @@ function GroupEditor({
           </div>
         </div>
       )}
+
+      <Dialog
+        open={pendingAdd !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAdd(null);
+        }}
+      >
+        <DialogContent
+          title="Excede la porción recomendada"
+          description={
+            pendingAdd
+              ? `Vas a añadir ${formatPortion(pendingAdd.addPortions)} porc. de ${pendingAdd.foodName}. El total quedaría en ${formatPortion(pendingAdd.nextAported)} de ${formatPortion(planned)} planeadas para ${group.label}.`
+              : undefined
+          }
+        >
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPendingAdd(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmAdd}>Añadir de todos modos</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

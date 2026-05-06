@@ -10,17 +10,20 @@ import {
   exportCatalog,
   importCatalog,
   listFoods,
+  listForbidden,
   listGroups,
   listQuantities,
   listUnits,
+  partitionForbidden,
   renameGroup,
   updateFood,
+  updateGroupNote,
 } from "@/lib/db/repos";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import { Button, Card, Input, Label, Select } from "@/components/ui/primitives";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/ui/SectionHeader";
-import { Lock, LockOpen, Pencil, Plus, Search, Settings2, Trash2, X, Download, Upload } from "lucide-react";
+import { Ban, Lock, LockOpen, Pencil, Plus, Search, Settings2, StickyNote, Trash2, X, Download, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPortion } from "@/lib/balance";
 import { getGroupColor } from "@/lib/ui/groupColor";
@@ -36,6 +39,12 @@ export default function AlimentosPage() {
   const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? EMPTY;
   const quantities =
     useLiveQuery(() => listQuantities(profileId), [profileId]) ?? EMPTY;
+  const forbidden =
+    useLiveQuery(() => listForbidden(profileId), [profileId]) ?? EMPTY;
+  const { groupIds: forbiddenGroupIds, foodIds: forbiddenFoodIds } = useMemo(
+    () => partitionForbidden(forbidden),
+    [forbidden],
+  );
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -120,6 +129,7 @@ export default function AlimentosPage() {
             <GroupHeader
               groupId={tabId}
               label={groups.find((g) => g.id === tabId)?.label ?? ""}
+              note={groups.find((g) => g.id === tabId)?.note}
               removable={
                 groups.find((g) => g.id === tabId)?.removable ?? false
               }
@@ -231,16 +241,25 @@ export default function AlimentosPage() {
                       </Button>
                     </td>
                     <td className="py-2 pr-3">
-                      <Input
-                        defaultValue={f.name}
-                        readOnly={rowLocked}
-                        onBlur={(e) => {
-                          if (rowLocked) return;
-                          const v = e.target.value.trim();
-                          if (v && v !== f.name)
-                            void updateFood(f.id, { name: v });
-                        }}
-                      />
+                      <div className="flex items-center gap-2">
+                        {(forbiddenFoodIds.has(f.id) ||
+                          forbiddenGroupIds.has(f.groupId)) && (
+                          <Ban
+                            className="h-4 w-4 shrink-0 text-[var(--danger)]"
+                            aria-label="Prohibido"
+                          />
+                        )}
+                        <Input
+                          defaultValue={f.name}
+                          readOnly={rowLocked}
+                          onBlur={(e) => {
+                            if (rowLocked) return;
+                            const v = e.target.value.trim();
+                            if (v && v !== f.name)
+                              void updateFood(f.id, { name: v });
+                          }}
+                        />
+                      </div>
                     </td>
                     <td className="py-2 pr-3">
                       <Select
@@ -310,67 +329,131 @@ export default function AlimentosPage() {
 function GroupHeader({
   groupId,
   label,
+  note,
   removable,
   onDeleted,
 }: {
   groupId: string;
   label: string;
+  note?: string;
   removable: boolean;
   onDeleted: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(label);
+  const [noteEditing, setNoteEditing] = useState(false);
+  const [noteVal, setNoteVal] = useState(note ?? "");
   return (
-    <div className="flex items-center gap-1">
-      <h2 className="text-lg font-semibold">{label}</h2>
-      <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogTrigger asChild>
+    <div className="flex flex-1 flex-col gap-1 min-w-0">
+      <div className="flex items-center gap-1">
+        <h2 className="text-lg font-semibold">{label}</h2>
+        <Dialog open={editing} onOpenChange={setEditing}>
+          <DialogTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Renombrar grupo"
+              onClick={() => setVal(label)}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent title="Renombrar grupo">
+            <div className="space-y-3">
+              <Input value={val} onChange={(e) => setVal(e.target.value)} />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={async () => {
+                    await renameGroup(groupId, val.trim() || label);
+                    setEditing(false);
+                  }}
+                >
+                  Guardar
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={noteEditing}
+          onOpenChange={(v) => {
+            setNoteEditing(v);
+            if (v) setNoteVal(note ?? "");
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={note ? "Editar nota del grupo" : "Añadir nota al grupo"}
+              title={note ? "Editar nota" : "Añadir nota"}
+            >
+              <StickyNote
+                className={cn(
+                  "h-4 w-4",
+                  note ? "text-[var(--primary)]" : "",
+                )}
+              />
+            </Button>
+          </DialogTrigger>
+          <DialogContent title="Nota del grupo">
+            <div className="space-y-3">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Esta nota aparecerá bajo el grupo y como pie en las recetas
+                donde se use este grupo.
+              </p>
+              <textarea
+                className={cn(
+                  "min-h-32 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] p-2 text-sm",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
+                )}
+                value={noteVal}
+                onChange={(e) => setNoteVal(e.target.value)}
+                placeholder="Ej. Los alimentos de origen animal se pesan en cocido…"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setNoteEditing(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={async () => {
+                    await updateGroupNote(groupId, noteVal);
+                    setNoteEditing(false);
+                  }}
+                >
+                  Guardar
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+        {removable && (
           <Button
             size="icon"
             variant="ghost"
-            aria-label="Renombrar grupo"
-            onClick={() => setVal(label)}
+            aria-label="Eliminar grupo"
+            onClick={async () => {
+              if (
+                confirm(
+                  `Eliminar grupo "${label}"? También se borran sus alimentos y porciones del plan.`,
+                )
+              ) {
+                await deleteGroup(groupId);
+                onDeleted();
+              }
+            }}
           >
-            <Pencil className="h-4 w-4" />
+            <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
           </Button>
-        </DialogTrigger>
-        <DialogContent title="Renombrar grupo">
-          <div className="space-y-3">
-            <Input value={val} onChange={(e) => setVal(e.target.value)} />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setEditing(false)}>
-                Cancelar
-              </Button>
-              <Button
-                onClick={async () => {
-                  await renameGroup(groupId, val.trim() || label);
-                  setEditing(false);
-                }}
-              >
-                Guardar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      {removable && (
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Eliminar grupo"
-          onClick={async () => {
-            if (
-              confirm(
-                `Eliminar grupo "${label}"? También se borran sus alimentos y porciones del plan.`,
-              )
-            ) {
-              await deleteGroup(groupId);
-              onDeleted();
-            }
-          }}
-        >
-          <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
-        </Button>
+        )}
+      </div>
+      {note && (
+        <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {note}
+        </p>
       )}
     </div>
   );

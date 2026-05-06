@@ -5,11 +5,13 @@ import Link from "next/link";
 import {
   deleteRecipe,
   listFoods,
+  listForbidden,
   listGroups,
   listMeals,
   listPlan,
   listRecipes,
   listUnits,
+  partitionForbidden,
 } from "@/lib/db/repos";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import { Badge, Button, Card } from "@/components/ui/primitives";
@@ -20,9 +22,9 @@ import {
   formatPortion,
   recipePortionsByGroup,
 } from "@/lib/balance";
-import { ChefHat, Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { Ban, ChefHat, Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { getGroupColor } from "@/lib/ui/groupColor";
-import type { Food, Recipe } from "@/lib/types";
+import type { Food, FoodGroup, Recipe } from "@/lib/types";
 
 const EMPTY: never[] = [];
 
@@ -35,6 +37,10 @@ export default function PlanDelDiaPage() {
   const plan = useLiveQuery(() => listPlan(profileId), [profileId]) ?? EMPTY;
   const recipes =
     useLiveQuery(() => listRecipes(profileId), [profileId]) ?? EMPTY;
+  const forbidden =
+    useLiveQuery(() => listForbidden(profileId), [profileId]) ?? EMPTY;
+
+  const { customs: forbiddenCustoms } = partitionForbidden(forbidden);
 
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const unitById = new Map(units.map((u) => [u.id, u]));
@@ -57,6 +63,24 @@ export default function PlanDelDiaPage() {
         subtitle={`Hoy · ${today}`}
         tone="primary"
       />
+
+      {forbiddenCustoms.length > 0 && (
+        <Card
+          variant="flat"
+          tone="danger"
+          className="flex items-start gap-3 px-4 py-3 sm:px-5"
+        >
+          <Ban className="mt-0.5 h-4 w-4 shrink-0 text-[var(--danger)]" />
+          <div className="min-w-0 text-sm">
+            <span className="font-semibold text-[var(--danger-soft-fg)]">
+              Evitar:
+            </span>{" "}
+            <span className="text-[var(--foreground-soft)]">
+              {forbiddenCustoms.map((it) => it.label).join(", ")}
+            </span>
+          </div>
+        </Card>
+      )}
 
       {meals.length === 0 ? (
         <Card className="p-2">
@@ -118,7 +142,7 @@ function MealCard({
   mealTime?: string;
   recipe: Recipe | undefined;
   groups: { id: string; label: string }[];
-  groupById: Map<string, { label: string }>;
+  groupById: Map<string, FoodGroup>;
   planByCell: Map<string, number>;
   foodById: Map<string, Food>;
   unitById: Map<string, { label: string }>;
@@ -220,6 +244,20 @@ function MealCard({
       {/* Items table */}
       {recipe && recipe.items.length > 0 ? (
         <div className="border-t border-[var(--border)]">
+          {(() => {
+            // Footnotes: unique groups present in the recipe that have a note.
+            const footnoteIndex = new Map<string, number>();
+            const footnotes: { groupId: string; label: string; note: string }[] = [];
+            for (const it of recipe.items) {
+              const food = foodById.get(it.foodId);
+              if (!food) continue;
+              const g = groupById.get(food.groupId);
+              if (!g?.note || footnoteIndex.has(g.id)) continue;
+              footnoteIndex.set(g.id, footnotes.length + 1);
+              footnotes.push({ groupId: g.id, label: g.label, note: g.note });
+            }
+            return (
+              <>
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: "26%" }} />
@@ -254,6 +292,7 @@ function MealCard({
                 const groupLabel = food
                   ? groupById.get(food.groupId)?.label ?? ""
                   : "";
+                const fnNum = food ? footnoteIndex.get(food.groupId) : undefined;
                 return (
                   <tr key={i}>
                     <td className="px-3 sm:px-4 py-2">
@@ -268,6 +307,11 @@ function MealCard({
                           title={groupLabel}
                         >
                           {groupLabel}
+                          {fnNum !== undefined && (
+                            <sup className="ml-0.5 text-[var(--primary)]">
+                              {fnNum}
+                            </sup>
+                          )}
                         </span>
                       </span>
                     </td>
@@ -294,6 +338,26 @@ function MealCard({
               })}
             </tbody>
           </table>
+          {footnotes.length > 0 && (
+            <ol className="space-y-1 border-t border-[var(--border)] bg-[var(--card-2)] px-4 py-3 text-xs text-[var(--muted-foreground)] sm:px-5">
+              {footnotes.map((f, idx) => (
+                <li key={f.groupId} className="flex gap-2">
+                  <span className="shrink-0 font-medium text-[var(--primary)] tabular-nums">
+                    {idx + 1}.
+                  </span>
+                  <span className="whitespace-pre-wrap">
+                    <span className="font-medium text-[var(--foreground-soft)]">
+                      {f.label}:
+                    </span>{" "}
+                    {f.note}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+              </>
+            );
+          })()}
         </div>
       ) : (
         <div className="border-t border-[var(--border)] px-4 py-4 text-center text-sm text-[var(--muted-foreground)] sm:px-5">

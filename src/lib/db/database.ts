@@ -2,6 +2,7 @@ import Dexie, { type Table } from "dexie";
 import type {
   Food,
   FoodGroup,
+  ForbiddenItem,
   Meal,
   PlanCell,
   PlanSnapshot,
@@ -34,6 +35,7 @@ export class NutricionDB extends Dexie {
   planSnapshots!: Table<PlanSnapshot, string>;
   recipeSnapshots!: Table<RecipeSnapshot, string>;
   backups!: Table<AutoBackupRow, string>;
+  forbiddenItems!: Table<ForbiddenItem, string>;
 
   constructor() {
     super("nutricion-mcz");
@@ -189,6 +191,23 @@ export class NutricionDB extends Dexie {
       recipeSnapshots:
         "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
       backups: "id, createdAt",
+    });
+
+    // v5 — Adds the `forbiddenItems` table (per-profile vetoed foods/groups/custom).
+    this.version(5).stores({
+      profiles: "id, name, createdAt",
+      groups: "id, profileId, [profileId+order], [profileId+key]",
+      foods: "id, profileId, groupId, [profileId+groupId]",
+      meals: "id, profileId, [profileId+order]",
+      planCells: "id, profileId, mealId, groupId, [profileId+mealId+groupId]",
+      recipes: "id, profileId, mealId, [profileId+mealId]",
+      unitTypes: "id, profileId, [profileId+order]",
+      quantityOptions: "id, profileId, [profileId+order]",
+      planSnapshots: "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      recipeSnapshots:
+        "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      backups: "id, createdAt",
+      forbiddenItems: "id, profileId, kind, [profileId+kind]",
     });
   }
 }

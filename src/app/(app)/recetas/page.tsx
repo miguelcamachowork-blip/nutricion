@@ -131,14 +131,30 @@ export default function RecetasCalendarPage() {
               selected: "rdp-day-selected",
             }}
           />
-          <div className="mt-3 flex flex-wrap gap-3 px-2 text-[11px] text-[var(--muted-foreground)]">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 px-2 text-xs text-[var(--muted-foreground)]">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--primary)] text-[10px] font-semibold text-[var(--primary)]">
+                15
+              </span>
               Con recetas
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-amber-500 text-[10px] font-semibold text-amber-700">
+                15
+              </span>
               Requiere revisión
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="inline-flex h-5 w-5 items-center justify-center text-[10px] font-semibold text-white"
+                style={{
+                  background: "var(--primary)",
+                  borderRadius: "var(--radius)",
+                }}
+              >
+                15
+              </span>
+              Día seleccionado
             </span>
           </div>
         </Card>
@@ -196,31 +212,45 @@ export default function RecetasCalendarPage() {
         .rdp-root {
           --rdp-accent-color: var(--primary);
           --rdp-accent-background-color: var(--accent);
-          --rdp-day_button-border-radius: var(--radius);
-          --rdp-selected-border: 2px solid var(--primary);
-          --rdp-day-height: 2.5rem;
-          --rdp-day-width: 2.5rem;
+          --rdp-day_button-border-radius: 9999px;
+          --rdp-selected-border: 0;
+          --rdp-day-height: 2.75rem;
+          --rdp-day-width: 2.75rem;
           font-family: inherit;
         }
         .rdp-day_button {
-          font-size: 0.875rem;
-        }
-        .rdp-day-has-recipes:not(.rdp-selected) .rdp-day_button {
-          position: relative;
-        }
-        .rdp-day-has-recipes:not(.rdp-selected) .rdp-day_button::after {
-          content: "";
-          position: absolute;
-          left: 50%;
-          bottom: 4px;
-          width: 4px;
-          height: 4px;
+          font-size: 0.95rem;
+          font-weight: 500;
           border-radius: 9999px;
-          background: var(--primary);
-          transform: translateX(-50%);
+          transition: background-color 120ms ease, border-color 120ms ease,
+            color 120ms ease, box-shadow 120ms ease;
         }
-        .rdp-day-needs-review:not(.rdp-selected) .rdp-day_button::after {
-          background: rgb(245 158 11);
+        /* Days with at least one scheduled recipe → full ring around the number */
+        .rdp-day-has-recipes .rdp-day_button {
+          border: 2px solid var(--primary);
+          color: var(--primary);
+          font-weight: 600;
+        }
+        /* Days flagged for review → amber ring (overrides the primary ring) */
+        .rdp-day-needs-review .rdp-day_button {
+          border-color: rgb(245 158 11);
+          color: rgb(180 83 9);
+        }
+        /* Selected day → bold rounded square with filled background */
+        .rdp-selected .rdp-day_button,
+        .rdp-day_button[aria-selected="true"] {
+          border-radius: var(--radius) !important;
+          border: 2px solid var(--primary) !important;
+          background: var(--primary) !important;
+          color: var(--primary-foreground, #fff) !important;
+          box-shadow: 0 0 0 3px
+            color-mix(in oklab, var(--primary), transparent 75%);
+        }
+        /* Today (when not selected) → subtle outline so it stays visible */
+        .rdp-day-today:not(.rdp-selected) .rdp-day_button {
+          outline: 2px dashed
+            color-mix(in oklab, var(--primary), transparent 50%);
+          outline-offset: -2px;
         }
       `}</style>
     </div>

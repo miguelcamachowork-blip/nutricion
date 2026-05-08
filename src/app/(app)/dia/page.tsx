@@ -4,15 +4,18 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import {
   deleteRecipe,
+  deleteScheduledRecipe,
   listFoods,
   listForbidden,
   listGroups,
   listMeals,
   listPlan,
   listRecipes,
+  listScheduledRecipes,
   listUnits,
   partitionForbidden,
 } from "@/lib/db/repos";
+import { todayISO } from "@/lib/utils";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -24,7 +27,7 @@ import {
 } from "@/lib/balance";
 import { Ban, ChefHat, Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { getGroupColor } from "@/lib/ui/groupColor";
-import type { Food, FoodGroup, Recipe } from "@/lib/types";
+import type { Food, FoodGroup, Recipe, ScheduledRecipe } from "@/lib/types";
 
 const EMPTY: never[] = [];
 
@@ -37,6 +40,12 @@ export default function PlanDelDiaPage() {
   const plan = useLiveQuery(() => listPlan(profileId), [profileId]) ?? EMPTY;
   const recipes =
     useLiveQuery(() => listRecipes(profileId), [profileId]) ?? EMPTY;
+  const todayIso = todayISO();
+  const todaysScheduled =
+    useLiveQuery(
+      () => listScheduledRecipes(profileId, todayIso, todayIso),
+      [profileId, todayIso],
+    ) ?? EMPTY;
   const forbidden =
     useLiveQuery(() => listForbidden(profileId), [profileId]) ?? EMPTY;
 
@@ -45,7 +54,25 @@ export default function PlanDelDiaPage() {
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const unitById = new Map(units.map((u) => [u.id, u]));
   const groupById = new Map(groups.map((g) => [g.id, g]));
-  const recipeByMeal = new Map(recipes.map((r) => [r.mealId, r]));
+  const templateByMeal = new Map(recipes.map((r) => [r.mealId, r]));
+  const scheduledByMeal = new Map(
+    todaysScheduled.map((r) => [r.mealId, r]),
+  );
+  /** For each meal: prefer today's scheduled recipe (calendar) over the
+   *  per-meal template. */
+  const recipeByMeal = new Map<
+    string,
+    { recipe: Recipe | ScheduledRecipe; source: "template" | "scheduled" }
+  >();
+  for (const m of meals) {
+    const sched = scheduledByMeal.get(m.id);
+    if (sched) {
+      recipeByMeal.set(m.id, { recipe: sched, source: "scheduled" });
+      continue;
+    }
+    const tmpl = templateByMeal.get(m.id);
+    if (tmpl) recipeByMeal.set(m.id, { recipe: tmpl, source: "template" });
+  }
   const planByCell = new Map(
     plan.map((c) => [`${c.mealId}::${c.groupId}`, c.portions]),
   );
@@ -63,7 +90,7 @@ export default function PlanDelDiaPage() {
   const footnoteOrder: { groupId: string; label: string; note: string }[] = [];
   const footnoteIndex = new Map<string, number>();
   for (const m of meals) {
-    const r = recipeByMeal.get(m.id);
+    const r = recipeByMeal.get(m.id)?.recipe;
     if (!r) continue;
     for (const it of r.items) {
       const food = foodById.get(it.foodId);
@@ -121,7 +148,7 @@ export default function PlanDelDiaPage() {
         <>
           <div className="grid grid-cols-1 gap-4">
             {meals.map((m) => {
-              const recipe = recipeByMeal.get(m.id);
+              const entry = recipeByMeal.get(m.id);
               return (
                 <MealCard
                   key={m.id}
@@ -129,7 +156,9 @@ export default function PlanDelDiaPage() {
                   mealId={m.id}
                   mealLabel={m.label}
                   mealTime={m.time}
-                  recipe={recipe}
+                  recipe={entry?.recipe}
+                  recipeSource={entry?.source}
+                  todayIso={todayIso}
                   groups={groups}
                   groupById={groupById}
                   planByCell={planByCell}
@@ -177,6 +206,8 @@ function MealCard({
   mealLabel,
   mealTime,
   recipe,
+  recipeSource,
+  todayIso,
   groups,
   groupById,
   planByCell,
@@ -188,7 +219,9 @@ function MealCard({
   mealId: string;
   mealLabel: string;
   mealTime?: string;
-  recipe: Recipe | undefined;
+  recipe: Recipe | ScheduledRecipe | undefined;
+  recipeSource: "template" | "scheduled" | undefined;
+  todayIso: string;
   groups: { id: string; label: string }[];
   groupById: Map<string, FoodGroup>;
   planByCell: Map<string, number>;
@@ -209,14 +242,29 @@ function MealCard({
     }))
     .filter((r) => r.planned > 0 || r.aported > 0);
 
+  const editHref =
+    recipeSource === "scheduled"
+      ? `/recetas/calendario/${todayIso}/${encodeURIComponent(mealId)}`
+      : `/dia/editar/${encodeURIComponent(mealId)}`;
+  const isAI =
+    recipeSource === "scheduled" &&
+    (recipe as ScheduledRecipe | undefined)?.source === "ai";
+
   return (
     <Card variant="elevated" className="overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] bg-gradient-to-br from-[var(--accent)] to-transparent px-4 py-3 sm:px-5">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight sm:text-lg">
-            {mealLabel}
-          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-semibold tracking-tight sm:text-lg">
+              {mealLabel}
+            </h2>
+            {recipeSource === "scheduled" && (
+              <Badge tone={isAI ? "info" : "neutral"} className="text-[10px]">
+                {isAI ? "IA · Programada" : "Programada"}
+              </Badge>
+            )}
+          </div>
           {recipe?.title && (
             <p className="mt-0.5 truncate text-sm text-[var(--foreground-soft)]">
               {recipe.title}
@@ -230,7 +278,7 @@ function MealCard({
           )}
         </div>
         <div className="flex items-center gap-1">
-          <Link href={`/dia/editar/${mealId}`}>
+          <Link href={editHref}>
             <Button size="sm" variant={recipe ? "outline" : "primary"}>
               {recipe ? (
                 <>
@@ -251,8 +299,13 @@ function MealCard({
               variant="ghost"
               title="Eliminar receta"
               onClick={() => {
-                if (confirm(`¿Eliminar la receta de "${mealLabel}"?`))
-                  void deleteRecipe(profileId, mealId);
+                if (confirm(`¿Eliminar la receta de "${mealLabel}"?`)) {
+                  if (recipeSource === "scheduled" && recipe && "id" in recipe) {
+                    void deleteScheduledRecipe(recipe.id);
+                  } else {
+                    void deleteRecipe(profileId, mealId);
+                  }
+                }
               }}
               className="text-[var(--danger)] hover:bg-[var(--danger-soft)]"
             >

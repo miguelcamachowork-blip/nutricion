@@ -217,6 +217,11 @@ function MealCard({
           <h2 className="text-base font-semibold tracking-tight sm:text-lg">
             {mealLabel}
           </h2>
+          {recipe?.title && (
+            <p className="mt-0.5 truncate text-sm text-[var(--foreground-soft)]">
+              {recipe.title}
+            </p>
+          )}
           {mealTime && (
             <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
               <Clock className="h-3 w-3" />
@@ -294,7 +299,15 @@ function MealCard({
       {/* Items table */}
       {recipe && recipe.items.length > 0 ? (
         <div className="border-t border-[var(--border)]">
-          <table className="w-full table-fixed text-sm">
+          <div
+            className={
+              recipe.preparation && recipe.preparation.length > 0
+                ? "grid gap-0 lg:grid-cols-[2fr_1fr] lg:divide-x lg:divide-[var(--border)]"
+                : undefined
+            }
+          >
+            <div className="min-w-0 overflow-x-auto">
+              <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: "26%" }} />
               <col style={{ width: "32%" }} />
@@ -374,6 +387,25 @@ function MealCard({
               })}
             </tbody>
           </table>
+            </div>
+            {recipe.preparation && recipe.preparation.length > 0 && (
+              <aside className="border-t border-[var(--border)] px-4 py-3 sm:px-5 lg:border-t-0">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Preparación
+                </p>
+                <ol className="space-y-1.5 text-sm text-[var(--foreground-soft)]">
+                  {recipe.preparation.map((step, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="shrink-0 font-medium tabular-nums text-[var(--primary)]">
+                        {i + 1}.
+                      </span>
+                      <span className="whitespace-pre-wrap">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </aside>
+            )}
+          </div>
         </div>
       ) : (
         <div className="border-t border-[var(--border)] px-4 py-4 text-center text-sm text-[var(--muted-foreground)] sm:px-5">

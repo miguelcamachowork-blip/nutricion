@@ -22,7 +22,7 @@ import {
 import { useRecipeDraft } from "@/hooks/useRecipeDraft";
 import { useAIRecipe, type AISuggestionResult } from "@/hooks/useAIRecipe";
 import { buildMealContext } from "@/lib/ai/buildContext";
-import { Badge, Button, Card, Select } from "@/components/ui/primitives";
+import { Badge, Button, Card, Input, Select } from "@/components/ui/primitives";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { getGroupColor } from "@/lib/ui/groupColor";
@@ -189,6 +189,8 @@ export function RecipeEditor({
       plan={plan!}
       forbidden={forbidden}
       initialItems={existing ? existing.items : []}
+      initialTitle={existing?.title}
+      initialPreparation={existing?.preparation}
       initialNeedsReview={
         target.kind === "scheduled" && existing
           ? Boolean(
@@ -215,6 +217,8 @@ function EditorBody({
   plan,
   forbidden,
   initialItems,
+  initialTitle,
+  initialPreparation,
   initialNeedsReview,
   existingId,
   onSaved,
@@ -231,6 +235,8 @@ function EditorBody({
   plan: { mealId: string; groupId: string; portions: number }[];
   forbidden: ForbiddenItem[];
   initialItems: RecipeItem[];
+  initialTitle?: string;
+  initialPreparation?: string[];
   initialNeedsReview: boolean;
   existingId: string | undefined;
   onSaved: () => void;
@@ -242,6 +248,10 @@ function EditorBody({
   const {
     items,
     setItems,
+    title,
+    setTitle,
+    preparation,
+    setPreparation,
     ready: draftReady,
     loadedFromDraft,
     draftUpdatedAt,
@@ -252,6 +262,8 @@ function EditorBody({
     mealId,
     date: draftDate,
     baselineItems: initialItems,
+    baselineTitle: initialTitle,
+    baselinePreparation: initialPreparation,
   });
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
 
@@ -295,14 +307,23 @@ function EditorBody({
   );
 
   const doSave = async () => {
+    const cleanTitle = title?.trim() || undefined;
+    const cleanPrep = preparation?.map((s) => s.trim()).filter(Boolean);
+    const prepOrUndef =
+      cleanPrep && cleanPrep.length > 0 ? cleanPrep : undefined;
     if (target.kind === "template") {
-      await upsertRecipe(profileId, mealId, items);
+      await upsertRecipe(profileId, mealId, items, {
+        title: cleanTitle,
+        preparation: prepOrUndef,
+      });
     } else {
       await upsertScheduledRecipe({
         profileId,
         mealId,
         date: target.date,
         items,
+        title: cleanTitle,
+        preparation: prepOrUndef,
         source: "manual",
         markReviewed: true,
       });
@@ -352,6 +373,10 @@ function EditorBody({
   const applyAIPreview = () => {
     if (!aiPreview) return;
     setItems(aiPreview.items);
+    if (aiPreview.title) setTitle(aiPreview.title);
+    if (aiPreview.preparation && aiPreview.preparation.length > 0) {
+      setPreparation(aiPreview.preparation);
+    }
     setAiPreview(null);
     toast.success("Sugerencia aplicada", {
       description: "Se guardó como borrador. Revísala antes de guardar.",
@@ -451,6 +476,13 @@ function EditorBody({
           para añadir porciones por grupo.
         </Card>
       )}
+
+      <RecipeMetaEditor
+        title={title}
+        onTitleChange={setTitle}
+        preparation={preparation}
+        onPreparationChange={setPreparation}
+      />
 
       <div className="space-y-4">
         {visibleGroups.map((g) => (
@@ -1111,5 +1143,158 @@ function RemainingPortionsBadge({
     >
       Excede en {formatPortion(-remaining)} porc.
     </div>
+  );
+}
+
+/**
+ * Editor for recipe metadata (title + preparation steps). Both fields are
+ * optional; the section auto-collapses when both are empty until the user
+ * clicks "Agregar título" / "Agregar preparación".
+ */
+function RecipeMetaEditor({
+  title,
+  onTitleChange,
+  preparation,
+  onPreparationChange,
+}: {
+  title: string | undefined;
+  onTitleChange: (t: string | undefined) => void;
+  preparation: string[] | undefined;
+  onPreparationChange: (s: string[] | undefined) => void;
+}) {
+  const hasTitle = title !== undefined && title.length > 0;
+  const steps = preparation ?? [];
+  const hasSteps = steps.length > 0;
+  const [titleOpened, setTitleOpened] = useState(false);
+  const [stepsOpened, setStepsOpened] = useState(false);
+  const showTitle = hasTitle || titleOpened;
+  const showSteps = hasSteps || stepsOpened;
+
+  const updateStep = (idx: number, value: string) => {
+    const next = steps.slice();
+    next[idx] = value;
+    onPreparationChange(next);
+  };
+  const addStep = () => {
+    onPreparationChange([...steps, ""]);
+  };
+  const removeStep = (idx: number) => {
+    const next = steps.filter((_, i) => i !== idx);
+    onPreparationChange(next.length > 0 ? next : undefined);
+  };
+
+  if (!showTitle && !showSteps) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setTitleOpened(true)}
+        >
+          + Título
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setStepsOpened(true);
+            if (steps.length === 0) onPreparationChange([""]);
+          }}
+        >
+          + Preparación
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="space-y-3 p-4">
+      {showTitle && (
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+            Título de la receta
+          </label>
+          <Input
+            value={title ?? ""}
+            onChange={(e) => onTitleChange(e.target.value || undefined)}
+            placeholder="Ej. Bowl de quinoa con pollo"
+          />
+        </div>
+      )}
+
+      {showSteps && (
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Preparación
+            </label>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={addStep}
+              title="Agregar paso"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Paso
+            </Button>
+          </div>
+          {steps.length === 0 ? (
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Aún no hay pasos. Pulsa &quot;Paso&quot; para agregar uno.
+            </p>
+          ) : (
+            <ol className="space-y-2">
+              {steps.map((step, idx) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="mt-2 w-6 shrink-0 text-right text-xs font-medium tabular-nums text-[var(--muted-foreground)]">
+                    {idx + 1}.
+                  </span>
+                  <textarea
+                    value={step}
+                    onChange={(e) => updateStep(idx, e.target.value)}
+                    rows={2}
+                    placeholder="Describe el paso…"
+                    className="min-h-[2.5rem] flex-1 rounded-md border border-[var(--border)] bg-[var(--card-2)] px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40"
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => removeStep(idx)}
+                    className="text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+                    title="Eliminar paso"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {!showTitle && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setTitleOpened(true)}
+          >
+            + Título
+          </Button>
+        )}
+        {!showSteps && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setStepsOpened(true);
+              if (steps.length === 0) onPreparationChange([""]);
+            }}
+          >
+            + Preparación
+          </Button>
+        )}
+      </div>
+    </Card>
   );
 }

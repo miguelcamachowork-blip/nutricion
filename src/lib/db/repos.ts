@@ -513,6 +513,7 @@ export async function upsertRecipe(
   profileId: ID,
   mealId: ID,
   items: RecipeItem[],
+  meta?: { title?: string; preparation?: string[] },
 ): Promise<Recipe> {
   const db = getDB();
   let saved: Recipe;
@@ -521,10 +522,22 @@ export async function upsertRecipe(
       .where("[profileId+mealId]")
       .equals([profileId, mealId])
       .first();
+    const newTitle = meta?.title;
+    const newPrep = meta?.preparation;
     const sameAsBefore =
-      existing && JSON.stringify(existing.items) === JSON.stringify(items);
+      existing &&
+      JSON.stringify(existing.items) === JSON.stringify(items) &&
+      (existing.title ?? null) === (newTitle ?? null) &&
+      JSON.stringify(existing.preparation ?? null) ===
+        JSON.stringify(newPrep ?? null);
     if (existing) {
-      saved = { ...existing, items, updatedAt: Date.now() };
+      saved = {
+        ...existing,
+        items,
+        title: newTitle,
+        preparation: newPrep,
+        updatedAt: Date.now(),
+      };
       await db.recipes.put(saved);
     } else {
       saved = {
@@ -532,6 +545,8 @@ export async function upsertRecipe(
         profileId,
         mealId,
         items,
+        title: newTitle,
+        preparation: newPrep,
         updatedAt: Date.now(),
       };
       await db.recipes.add(saved);

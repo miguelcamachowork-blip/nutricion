@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
-import { listProfiles } from "@/lib/db/repos";
+import { countNeedsReview, listProfiles } from "@/lib/db/repos";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import { Select } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -11,6 +11,7 @@ import {
   Apple,
   Ban,
   CalendarDays,
+  CalendarPlus,
   ChefHat,
   ListChecks,
   Settings,
@@ -21,6 +22,7 @@ import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
 const NAV = [
   { href: "/dia", label: "Plan del día", icon: ChefHat },
   { href: "/plan", label: "Plan", icon: ListChecks },
+  { href: "/recetas", label: "Recetas", icon: CalendarPlus },
   { href: "/alimentos", label: "Alimentos", icon: Apple },
   { href: "/prohibidos", label: "Prohibidos", icon: Ban },
   { href: "/historico", label: "Histórico", icon: CalendarDays },
@@ -37,6 +39,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { activeProfileId, setActive } = useActiveProfileStore();
   const profiles = useLiveQuery(() => listProfiles(), []) ?? [];
   const activeProfile = profiles.find((p) => p.id === activeProfileId);
+  // Number of scheduled recipes flagged as needing review (i.e. created
+  // before a plan change). Surfaced as a small badge on the Recetas nav
+  // item so the user is reminded even from other screens.
+  const reviewCount =
+    useLiveQuery(
+      () => (activeProfileId ? countNeedsReview(activeProfileId) : Promise.resolve(0)),
+      [activeProfileId],
+    ) ?? 0;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
@@ -83,12 +93,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV.map((it) => {
             const active = isActive(pathname, it.href);
             const Icon = it.icon;
+            const showBadge = it.href === "/recetas" && reviewCount > 0;
             return (
               <Link
                 key={it.href}
                 href={it.href}
                 title={it.label}
-                aria-label={it.label}
+                aria-label={
+                  showBadge
+                    ? `${it.label} (${reviewCount} por revisar)`
+                    : it.label
+                }
                 className={cn(
                   "group relative flex items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 text-sm transition-colors",
                   active
@@ -102,12 +117,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-[var(--primary)]"
                   />
                 )}
-                <Icon
-                  className={cn(
-                    "h-5 w-5 shrink-0",
-                    active ? "text-[var(--primary)]" : "",
+                <span className="relative">
+                  <Icon
+                    className={cn(
+                      "h-5 w-5 shrink-0",
+                      active ? "text-[var(--primary)]" : "",
+                    )}
+                  />
+                  {showBadge && (
+                    <span
+                      aria-hidden
+                      className="absolute -top-1 -right-1.5 min-w-[1rem] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold flex items-center justify-center tabular-nums"
+                    >
+                      {reviewCount > 9 ? "9+" : reviewCount}
+                    </span>
                   )}
-                />
+                </span>
                 <span className="hidden lg:inline truncate">{it.label}</span>
               </Link>
             );
@@ -201,6 +226,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV.map((it) => {
             const active = isActive(pathname, it.href);
             const Icon = it.icon;
+            const showBadge = it.href === "/recetas" && reviewCount > 0;
             return (
               <Link
                 key={it.href}
@@ -216,11 +242,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <span
                   className={cn(
-                    "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                    "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
                     active && "bg-[var(--accent)]",
                   )}
                 >
                   <Icon className="h-5 w-5" />
+                  {showBadge && (
+                    <span
+                      aria-hidden
+                      className="absolute top-0 right-2 min-w-[1rem] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold flex items-center justify-center tabular-nums"
+                    >
+                      {reviewCount > 9 ? "9+" : reviewCount}
+                    </span>
+                  )}
                 </span>
                 <span className="leading-none">{it.label}</span>
               </Link>

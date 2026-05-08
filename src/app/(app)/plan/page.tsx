@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   addMeal,
@@ -39,6 +40,45 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const EMPTY: never[] = [];
+
+/**
+ * Wrapper around `setPlanCell` that surfaces a toast when the change
+ * affects future scheduled recipes (so the user knows to revisit them).
+ * Errors are also surfaced to the user since plan edits are user-initiated
+ * and silent failures would be confusing.
+ */
+async function handlePlanChange(
+  profileId: string,
+  mealId: string,
+  groupId: string,
+  portions: number,
+): Promise<void> {
+  try {
+    const { affectedScheduled } = await setPlanCell(
+      profileId,
+      mealId,
+      groupId,
+      portions,
+    );
+    if (affectedScheduled > 0) {
+      toast.warning(
+        `${affectedScheduled} receta${affectedScheduled === 1 ? "" : "s"} futura${affectedScheduled === 1 ? "" : "s"} pueden estar afectada${affectedScheduled === 1 ? "" : "s"} por este cambio`,
+        {
+          description: "Revísalas en la sección Recetas.",
+          action: {
+            label: "Ir a Recetas",
+            onClick: () => {
+              window.location.assign("/recetas");
+            },
+          },
+        },
+      );
+    }
+  } catch (err) {
+    toast.error("No se pudo guardar el cambio en el plan");
+    console.error(err);
+  }
+}
 
 export default function PlanPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
@@ -272,7 +312,7 @@ function SortableGroupRow({
           >
             <PortionPicker
               value={portions}
-              onChange={(n) => void setPlanCell(profileId, m.id, g.id, n)}
+              onChange={(n) => void handlePlanChange(profileId, m.id, g.id, n)}
               size="sm"
             />
           </td>

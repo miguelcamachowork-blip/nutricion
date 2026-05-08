@@ -56,6 +56,25 @@ export default function PlanDelDiaPage() {
     month: "long",
   });
 
+  // Build a single, page-wide footnote index across every recipe of the day.
+  // Each unique group with a `note` gets a stable number; the same number is
+  // referenced from every meal that uses that group, and the explanatory list
+  // is rendered just once at the bottom of the page.
+  const footnoteOrder: { groupId: string; label: string; note: string }[] = [];
+  const footnoteIndex = new Map<string, number>();
+  for (const m of meals) {
+    const r = recipeByMeal.get(m.id);
+    if (!r) continue;
+    for (const it of r.items) {
+      const food = foodById.get(it.foodId);
+      if (!food) continue;
+      const g = groupById.get(food.groupId);
+      if (!g?.note || footnoteIndex.has(g.id)) continue;
+      footnoteIndex.set(g.id, footnoteOrder.length + 1);
+      footnoteOrder.push({ groupId: g.id, label: g.label, note: g.note });
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-5 sm:px-6 sm:py-6">
       <SectionHeader
@@ -99,26 +118,54 @@ export default function PlanDelDiaPage() {
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {meals.map((m) => {
-            const recipe = recipeByMeal.get(m.id);
-            return (
-              <MealCard
-                key={m.id}
-                profileId={profileId}
-                mealId={m.id}
-                mealLabel={m.label}
-                mealTime={m.time}
-                recipe={recipe}
-                groups={groups}
-                groupById={groupById}
-                planByCell={planByCell}
-                foodById={foodById}
-                unitById={unitById}
-              />
-            );
-          })}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4">
+            {meals.map((m) => {
+              const recipe = recipeByMeal.get(m.id);
+              return (
+                <MealCard
+                  key={m.id}
+                  profileId={profileId}
+                  mealId={m.id}
+                  mealLabel={m.label}
+                  mealTime={m.time}
+                  recipe={recipe}
+                  groups={groups}
+                  groupById={groupById}
+                  planByCell={planByCell}
+                  foodById={foodById}
+                  unitById={unitById}
+                  footnoteIndex={footnoteIndex}
+                />
+              );
+            })}
+          </div>
+
+          {/* Global footnotes: one numbered list shared by all meals so the
+              same group note is never repeated under each card. */}
+          {footnoteOrder.length > 0 && (
+            <Card variant="flat" className="px-4 py-3 sm:px-5">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                Notas
+              </p>
+              <ol className="space-y-1 text-xs text-[var(--muted-foreground)]">
+                {footnoteOrder.map((f, idx) => (
+                  <li key={f.groupId} className="flex gap-2">
+                    <span className="shrink-0 font-medium text-[var(--primary)] tabular-nums">
+                      {idx + 1}.
+                    </span>
+                    <span className="whitespace-pre-wrap">
+                      <span className="font-medium text-[var(--foreground-soft)]">
+                        {f.label}:
+                      </span>{" "}
+                      {f.note}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );
@@ -135,6 +182,7 @@ function MealCard({
   planByCell,
   foodById,
   unitById,
+  footnoteIndex,
 }: {
   profileId: string;
   mealId: string;
@@ -146,6 +194,8 @@ function MealCard({
   planByCell: Map<string, number>;
   foodById: Map<string, Food>;
   unitById: Map<string, { label: string }>;
+  /** Page-wide map of `groupId → footnote number` (1-based). */
+  footnoteIndex: Map<string, number>;
 }) {
   const aported = recipe
     ? recipePortionsByGroup(recipe, foodById)
@@ -244,20 +294,6 @@ function MealCard({
       {/* Items table */}
       {recipe && recipe.items.length > 0 ? (
         <div className="border-t border-[var(--border)]">
-          {(() => {
-            // Footnotes: unique groups present in the recipe that have a note.
-            const footnoteIndex = new Map<string, number>();
-            const footnotes: { groupId: string; label: string; note: string }[] = [];
-            for (const it of recipe.items) {
-              const food = foodById.get(it.foodId);
-              if (!food) continue;
-              const g = groupById.get(food.groupId);
-              if (!g?.note || footnoteIndex.has(g.id)) continue;
-              footnoteIndex.set(g.id, footnotes.length + 1);
-              footnotes.push({ groupId: g.id, label: g.label, note: g.note });
-            }
-            return (
-              <>
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: "26%" }} />
@@ -338,26 +374,6 @@ function MealCard({
               })}
             </tbody>
           </table>
-          {footnotes.length > 0 && (
-            <ol className="space-y-1 border-t border-[var(--border)] bg-[var(--card-2)] px-4 py-3 text-xs text-[var(--muted-foreground)] sm:px-5">
-              {footnotes.map((f, idx) => (
-                <li key={f.groupId} className="flex gap-2">
-                  <span className="shrink-0 font-medium text-[var(--primary)] tabular-nums">
-                    {idx + 1}.
-                  </span>
-                  <span className="whitespace-pre-wrap">
-                    <span className="font-medium text-[var(--foreground-soft)]">
-                      {f.label}:
-                    </span>{" "}
-                    {f.note}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-              </>
-            );
-          })()}
         </div>
       ) : (
         <div className="border-t border-[var(--border)] px-4 py-4 text-center text-sm text-[var(--muted-foreground)] sm:px-5">

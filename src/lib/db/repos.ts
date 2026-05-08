@@ -12,8 +12,10 @@ import type {
   Profile,
   QuantityOption,
   Recipe,
+  RecipeDraft,
   RecipeItem,
   RecipeSnapshot,
+  ScheduledRecipe,
   UnitType,
 } from "@/lib/types";
 
@@ -429,30 +431,50 @@ export async function setPlanCell(
   mealId: ID,
   groupId: ID,
   portions: number,
-): Promise<void> {
+): Promise<{ affectedScheduled: number }> {
   const db = getDB();
-  await db.transaction("rw", [db.planCells, db.planSnapshots], async () => {
-    const existing = await db.planCells
-      .where("[profileId+mealId+groupId]")
-      .equals([profileId, mealId, groupId])
-      .first();
-    if (existing) {
-      if (portions === 0) await db.planCells.delete(existing.id);
-      else if (existing.portions !== portions)
-        await db.planCells.update(existing.id, { portions });
-      else return; // no-op, no snapshot
-    } else {
-      if (portions === 0) return;
-      await db.planCells.add({
-        id: uid(),
-        profileId,
-        mealId,
-        groupId,
-        portions,
-      });
-    }
-    await snapshotPlanWithinTx(profileId);
-  });
+  let changed = false;
+  await db.transaction(
+    "rw",
+    [db.planCells, db.planSnapshots, db.scheduledRecipes],
+    async () => {
+      const existing = await db.planCells
+        .where("[profileId+mealId+groupId]")
+        .equals([profileId, mealId, groupId])
+        .first();
+      if (existing) {
+        if (portions === 0) {
+          await db.planCells.delete(existing.id);
+          changed = true;
+        } else if (existing.portions !== portions) {
+          await db.planCells.update(existing.id, { portions });
+          changed = true;
+        } else {
+          return; // no-op, no snapshot
+        }
+      } else {
+        if (portions === 0) return;
+        await db.planCells.add({
+          id: uid(),
+          profileId,
+          mealId,
+          groupId,
+          portions,
+        });
+        changed = true;
+      }
+      await snapshotPlanWithinTx(profileId);
+    },
+  );
+  if (!changed) return { affectedScheduled: 0 };
+  // Flag future scheduled recipes for review (in a separate tx; the user
+  // doesn't need this to block the plan write).
+  const today = todayISO();
+  const affectedScheduled = await markScheduledRecipesNeedingReview(
+    profileId,
+    today,
+  );
+  return { affectedScheduled };
 }
 
 // ─── Recipes (one per profile+meal, "plan to follow") ─────────────────────
@@ -911,4 +933,172 @@ export async function importAllData(
     },
   );
   return backupCounts(data);
+}
+
+// ─── Scheduled recipes (calendarised) ─────────────────────────────────────
+
+/** List scheduled recipes for a profile in [from, to?] (ISO YYYY-MM-DD). */
+export async function listScheduledRecipes(
+  profileId: ID,
+  from?: string,
+  to?: string,
+): Promise<ScheduledRecipe[]> {
+  const all = await getDB()
+    .scheduledRecipes.where("profileId")
+    .equals(profileId)
+    .toArray();
+  return all
+    .filter((r) => (!from || r.date >= from) && (!to || r.date <= to))
+    .sort((a, b) =>
+      a.date === b.date ? a.mealId.localeCompare(b.mealId) : a.date.localeCompare(b.date),
+    );
+}
+
+export async function getScheduledRecipe(
+  profileId: ID,
+  mealId: ID,
+  date: string,
+): Promise<ScheduledRecipe | undefined> {
+  return getDB()
+    .scheduledRecipes.where("[profileId+date+mealId]")
+    .equals([profileId, date, mealId])
+    .first();
+}
+
+export async function upsertScheduledRecipe(
+  input: {
+    profileId: ID;
+    mealId: ID;
+    date: string;
+    items: RecipeItem[];
+    title?: string;
+    preparation?: string[];
+    notes?: string;
+    source: "manual" | "ai";
+    /** When true, clears the `needsReview` flag. */
+    markReviewed?: boolean;
+  },
+): Promise<ScheduledRecipe> {
+  const db = getDB();
+  const existing = await getScheduledRecipe(
+    input.profileId,
+    input.mealId,
+    input.date,
+  );
+  const now = Date.now();
+  const saved: ScheduledRecipe = existing
+    ? {
+        ...existing,
+        items: input.items,
+        title: input.title ?? existing.title,
+        preparation: input.preparation ?? existing.preparation,
+        notes: input.notes ?? existing.notes,
+        source: input.source,
+        needsReview: input.markReviewed ? false : existing.needsReview,
+        updatedAt: now,
+      }
+    : {
+        id: uid(),
+        profileId: input.profileId,
+        mealId: input.mealId,
+        date: input.date,
+        items: input.items,
+        title: input.title,
+        preparation: input.preparation,
+        notes: input.notes,
+        source: input.source,
+        needsReview: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+  await db.scheduledRecipes.put(saved);
+  return saved;
+}
+
+export async function markScheduledRecipeReviewed(id: ID): Promise<void> {
+  await getDB().scheduledRecipes.update(id, { needsReview: false });
+}
+
+export async function deleteScheduledRecipe(id: ID): Promise<void> {
+  await getDB().scheduledRecipes.delete(id);
+}
+
+/** Sets `needsReview = true` on every scheduled recipe with `date >= fromDate`
+ *  for the given profile. Returns the number of recipes flagged. */
+export async function markScheduledRecipesNeedingReview(
+  profileId: ID,
+  fromDate: string,
+): Promise<number> {
+  const db = getDB();
+  let count = 0;
+  await db.transaction("rw", db.scheduledRecipes, async () => {
+    const all = await db.scheduledRecipes
+      .where("profileId")
+      .equals(profileId)
+      .toArray();
+    const toFlag = all.filter((r) => r.date >= fromDate && !r.needsReview);
+    for (const r of toFlag) {
+      await db.scheduledRecipes.update(r.id, { needsReview: true });
+    }
+    count = toFlag.length;
+  });
+  return count;
+}
+
+/** Count of scheduled recipes pending user review (date >= today). */
+export async function countNeedsReview(profileId: ID): Promise<number> {
+  const today = todayISO();
+  const all = await getDB()
+    .scheduledRecipes.where("profileId")
+    .equals(profileId)
+    .toArray();
+  return all.filter((r) => r.needsReview === true && r.date >= today).length;
+}
+
+// ─── Recipe drafts (autosave) ─────────────────────────────────────────────
+//
+// Drafts are keyed by destination so there is at most one draft per
+// (profile, meal, date). Use `date = null` for the per-meal template editor
+// (no calendarised target).
+
+function draftId(profileId: ID, mealId: ID, date: string | null): ID {
+  return `${profileId}:${mealId}:${date ?? "template"}`;
+}
+
+export async function getRecipeDraft(
+  profileId: ID,
+  mealId: ID,
+  date: string | null,
+): Promise<RecipeDraft | undefined> {
+  return getDB().recipeDrafts.get(draftId(profileId, mealId, date));
+}
+
+export async function saveRecipeDraft(input: {
+  profileId: ID;
+  mealId: ID;
+  date: string | null;
+  items: RecipeItem[];
+  title?: string;
+  preparation?: string[];
+}): Promise<void> {
+  const id = draftId(input.profileId, input.mealId, input.date);
+  const draft: RecipeDraft = {
+    id,
+    profileId: input.profileId,
+    mealId: input.mealId,
+    date: input.date,
+    items: input.items,
+    title: input.title,
+    preparation: input.preparation,
+    updatedAt: Date.now(),
+  };
+  await getDB().recipeDrafts.put(draft);
+}
+
+export async function clearRecipeDraft(
+  profileId: ID,
+  mealId: ID,
+  date: string | null,
+): Promise<void> {
+  await getDB().recipeDrafts.delete(draftId(profileId, mealId, date));
 }

@@ -57,7 +57,7 @@ export default function ProhibidosPage() {
       <SectionHeader
         title="Alimentos prohibidos"
         subtitle="Veta grupos enteros, alimentos del catálogo o ingredientes que no tengas listados."
-        tone="danger"
+        tone="warning"
       />
 
       {/* ─── Grupos vetados ────────────────────────────── */}

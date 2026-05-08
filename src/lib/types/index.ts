@@ -109,6 +109,48 @@ export interface Recipe {
   profileId: ID;
   mealId: ID;
   items: RecipeItem[];
+  /** Optional title (used by AI-generated recipes). */
+  title?: string;
+  /** Optional preparation steps (used by AI-generated recipes). */
+  preparation?: string[];
+  updatedAt: number;
+}
+
+/** A recipe scheduled for a specific date. Independent from the per-meal
+ *  template `Recipe`. Created either manually or by the AI assistant. */
+export interface ScheduledRecipe {
+  id: ID;
+  profileId: ID;
+  mealId: ID;
+  /** ISO date YYYY-MM-DD when this recipe is scheduled to be eaten. */
+  date: string;
+  items: RecipeItem[];
+  title?: string;
+  preparation?: string[];
+  /** Origin of the recipe content. */
+  source: "manual" | "ai";
+  /** Marked true automatically when the plan changes after the recipe was
+   *  created/last reviewed. Cleared when the user explicitly reviews it. */
+  needsReview?: boolean;
+  /** Free-text notes from the user (optional). */
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Auto-saved draft of a recipe being edited. Keyed by destination so there
+ *  is at most one draft per (profile, meal, date). For the per-meal template
+ *  editor `date` is null. */
+export interface RecipeDraft {
+  /** `${profileId}:${mealId}:${date ?? "template"}` */
+  id: ID;
+  profileId: ID;
+  mealId: ID;
+  /** ISO date when editing a scheduled recipe; null for the template editor. */
+  date: string | null;
+  items: RecipeItem[];
+  title?: string;
+  preparation?: string[];
   updatedAt: number;
 }
 

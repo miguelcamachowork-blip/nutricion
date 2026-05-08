@@ -9,7 +9,9 @@ import type {
   Profile,
   QuantityOption,
   Recipe,
+  RecipeDraft,
   RecipeSnapshot,
+  ScheduledRecipe,
   UnitType,
 } from "@/lib/types";
 
@@ -36,6 +38,8 @@ export class NutricionDB extends Dexie {
   recipeSnapshots!: Table<RecipeSnapshot, string>;
   backups!: Table<AutoBackupRow, string>;
   forbiddenItems!: Table<ForbiddenItem, string>;
+  scheduledRecipes!: Table<ScheduledRecipe, string>;
+  recipeDrafts!: Table<RecipeDraft, string>;
 
   constructor() {
     super("nutricion-mcz");
@@ -208,6 +212,32 @@ export class NutricionDB extends Dexie {
         "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
       backups: "id, createdAt",
       forbiddenItems: "id, profileId, kind, [profileId+kind]",
+    });
+
+    // v6 — Adds:
+    //   * `scheduledRecipes`: recipes calendarised for a specific date,
+    //     independent from the per-meal template `recipes`. Created
+    //     manually or by the AI assistant. Carries optional preparation
+    //     steps and a `needsReview` flag toggled when the plan changes.
+    //   * `recipeDrafts`: auto-saved in-progress edits, keyed by
+    //     destination `${profileId}:${mealId}:${date ?? "template"}`.
+    this.version(6).stores({
+      profiles: "id, name, createdAt",
+      groups: "id, profileId, [profileId+order], [profileId+key]",
+      foods: "id, profileId, groupId, [profileId+groupId]",
+      meals: "id, profileId, [profileId+order]",
+      planCells: "id, profileId, mealId, groupId, [profileId+mealId+groupId]",
+      recipes: "id, profileId, mealId, [profileId+mealId]",
+      unitTypes: "id, profileId, [profileId+order]",
+      quantityOptions: "id, profileId, [profileId+order]",
+      planSnapshots: "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      recipeSnapshots:
+        "id, profileId, effectiveFrom, [profileId+effectiveFrom]",
+      backups: "id, createdAt",
+      forbiddenItems: "id, profileId, kind, [profileId+kind]",
+      scheduledRecipes:
+        "id, profileId, date, mealId, [profileId+date], [profileId+date+mealId]",
+      recipeDrafts: "id, profileId, mealId, date, [profileId+mealId+date]",
     });
   }
 }

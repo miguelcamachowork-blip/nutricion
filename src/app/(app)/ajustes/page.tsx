@@ -401,8 +401,10 @@ function FullBackupCard({ activeProfileName }: { activeProfileName: string | nul
       // Validate by importing-as-replace into nothing first? Simpler: rely on
       // assertFullBackup inside importAllData. We pre-validate here so the
       // confirmation dialog only appears for valid backups.
-      const { assertFullBackup } = await import("@/lib/db/repos");
-      assertFullBackup(parsed);
+      const repos = await import("@/lib/db/repos");
+      const assertFn: (v: unknown) => asserts v is FullBackup =
+        repos.assertFullBackup;
+      assertFn(parsed);
       setPending(parsed);
       setMode("replace");
     } catch (err) {

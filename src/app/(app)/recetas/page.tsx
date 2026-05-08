@@ -80,17 +80,79 @@ export default function RecetasCalendarPage() {
     return map;
   }, [scheduled]);
 
-  const scheduledDays = useMemo(
-    () => Array.from(byDate.keys()).map(parseISODate),
-    [byDate],
-  );
-  const reviewDays = useMemo(
-    () =>
-      Array.from(byDate.entries())
-        .filter(([, list]) => list.some((r) => r.needsReview))
-        .map(([d]) => parseISODate(d)),
-    [byDate],
-  );
+  // For each day with at least one scheduled recipe, decide whether the day
+  // is "complete" (every meal that has plan portions has a recipe whose
+  // portions match the plan within tolerance) or "incomplete" (something is
+  // missing or off). Days flagged `needsReview` are always treated as
+  // incomplete and shown in amber.
+  const dayStatus = useLiveQuery(async () => {
+    const dates = Array.from(byDate.keys());
+    if (dates.length === 0)
+      return {
+        completeDays: [] as Date[],
+        incompleteDays: [] as Date[],
+        reviewDays: [] as Date[],
+      };
+    const foodsArr = await listFoods(profileId);
+    const foodById = new Map(foodsArr.map((f) => [f.id, f]));
+    const completeDays: Date[] = [];
+    const incompleteDays: Date[] = [];
+    const reviewDays: Date[] = [];
+    for (const dateISO of dates) {
+      const list = byDate.get(dateISO) ?? [];
+      const d = parseISODate(dateISO);
+      if (list.some((r) => r.needsReview)) {
+        reviewDays.push(d);
+        incompleteDays.push(d);
+        continue;
+      }
+      const plan = await getPlanAt(profileId, dateISO);
+      // Group plan portions by meal/group, only keeping cells with portions>0.
+      const planByMeal = new Map<string, Map<string, number>>();
+      for (const c of plan) {
+        if (c.portions <= 0) continue;
+        let m = planByMeal.get(c.mealId);
+        if (!m) {
+          m = new Map();
+          planByMeal.set(c.mealId, m);
+        }
+        m.set(c.groupId, c.portions);
+      }
+      // No plan defined for this day → can't decide completeness, treat as
+      // incomplete so the user notices.
+      if (planByMeal.size === 0) {
+        incompleteDays.push(d);
+        continue;
+      }
+      const recipeByMeal = new Map(list.map((r) => [r.mealId, r]));
+      let complete = true;
+      for (const [mealId, plannedGroups] of planByMeal) {
+        const rec = recipeByMeal.get(mealId);
+        if (!rec) {
+          complete = false;
+          break;
+        }
+        const aported = recipePortionsByGroup(rec, foodById);
+        for (const [gid, planned] of plannedGroups) {
+          if (Math.abs((aported.get(gid) ?? 0) - planned) > 0.01) {
+            complete = false;
+            break;
+          }
+        }
+        if (!complete) break;
+      }
+      if (complete) completeDays.push(d);
+      else incompleteDays.push(d);
+    }
+    return { completeDays, incompleteDays, reviewDays };
+  }, [profileId, byDate]) ?? {
+    completeDays: [] as Date[],
+    incompleteDays: [] as Date[],
+    reviewDays: [] as Date[],
+  };
+  const completeDays = dayStatus.completeDays;
+  const incompleteDays = dayStatus.incompleteDays;
+  const reviewDays = dayStatus.reviewDays;
 
   const todaysRecipes = byDate.get(selectedISO) ?? [];
   const recipesByMeal = new Map(todaysRecipes.map((r) => [r.mealId, r]));
@@ -119,11 +181,13 @@ export default function RecetasCalendarPage() {
             onSelect={handleSelect}
             weekStartsOn={1}
             modifiers={{
-              hasRecipes: scheduledDays,
+              complete: completeDays,
+              incomplete: incompleteDays,
               needsReview: reviewDays,
             }}
             modifiersClassNames={{
-              hasRecipes: "rdp-day-has-recipes",
+              complete: "rdp-day-complete",
+              incomplete: "rdp-day-incomplete",
               needsReview: "rdp-day-needs-review",
             }}
             classNames={{
@@ -133,10 +197,10 @@ export default function RecetasCalendarPage() {
           />
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 px-2 text-xs text-[var(--muted-foreground)]">
             <span className="inline-flex items-center gap-2">
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--primary)] text-[10px] font-semibold text-[var(--primary)]">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-emerald-500 text-[10px] font-semibold text-emerald-700">
                 15
               </span>
-              Con recetas
+              Día completo
             </span>
             <span className="inline-flex items-center gap-2">
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-amber-500 text-[10px] font-semibold text-amber-700">
@@ -225,20 +289,28 @@ export default function RecetasCalendarPage() {
           transition: background-color 120ms ease, border-color 120ms ease,
             color 120ms ease, box-shadow 120ms ease;
         }
-        /* Days with at least one scheduled recipe → full ring around the number */
-        .rdp-day-has-recipes .rdp-day_button {
-          border: 2px solid var(--primary);
-          color: var(--primary);
+        /* Days where every meal recipe matches the plan → green ring */
+        .rdp-day-complete .rdp-day_button {
+          border: 2px solid rgb(16 185 129);
+          color: rgb(4 120 87);
           font-weight: 600;
         }
-        /* Days flagged for review → amber ring (overrides the primary ring) */
-        .rdp-day-needs-review .rdp-day_button {
-          border-color: rgb(245 158 11);
+        /* Days with at least one recipe but missing/mismatched portions → amber ring */
+        .rdp-day-incomplete .rdp-day_button {
+          border: 2px solid rgb(245 158 11);
           color: rgb(180 83 9);
+          font-weight: 600;
+        }
+        /* Days flagged for review (plan changed after recipe) → amber ring */
+        .rdp-day-needs-review .rdp-day_button {
+          border: 2px solid rgb(245 158 11);
+          color: rgb(180 83 9);
+          font-weight: 600;
         }
         /* Selected day → bold rounded square with filled background */
         .rdp-day-selected .rdp-day_button,
-        .rdp-day-selected.rdp-day-has-recipes .rdp-day_button,
+        .rdp-day-selected.rdp-day-complete .rdp-day_button,
+        .rdp-day-selected.rdp-day-incomplete .rdp-day_button,
         .rdp-day-selected.rdp-day-needs-review .rdp-day_button {
           border-radius: var(--radius) !important;
           border: 2px solid var(--primary) !important;

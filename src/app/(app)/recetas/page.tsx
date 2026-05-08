@@ -237,8 +237,9 @@ export default function RecetasCalendarPage() {
           color: rgb(180 83 9);
         }
         /* Selected day → bold rounded square with filled background */
-        .rdp-selected .rdp-day_button,
-        .rdp-day_button[aria-selected="true"] {
+        .rdp-day-selected .rdp-day_button,
+        .rdp-day-selected.rdp-day-has-recipes .rdp-day_button,
+        .rdp-day-selected.rdp-day-needs-review .rdp-day_button {
           border-radius: var(--radius) !important;
           border: 2px solid var(--primary) !important;
           background: var(--primary) !important;
@@ -247,7 +248,7 @@ export default function RecetasCalendarPage() {
             color-mix(in oklab, var(--primary), transparent 75%);
         }
         /* Today (when not selected) → subtle outline so it stays visible */
-        .rdp-day-today:not(.rdp-selected) .rdp-day_button {
+        .rdp-day-today:not(.rdp-day-selected) .rdp-day_button {
           outline: 2px dashed
             color-mix(in oklab, var(--primary), transparent 50%);
           outline-offset: -2px;

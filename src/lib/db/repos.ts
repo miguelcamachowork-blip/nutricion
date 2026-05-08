@@ -420,6 +420,21 @@ export async function deleteMeal(id: ID): Promise<void> {
   );
 }
 
+/** Persist a new ordering for the given meal ids (in the desired order). */
+export async function reorderMeals(
+  profileId: ID,
+  orderedIds: ID[],
+): Promise<void> {
+  const db = getDB();
+  await db.transaction("rw", db.meals, async () => {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        db.meals.update(id, { order: idx, profileId }),
+      ),
+    );
+  });
+}
+
 // ─── Plan ─────────────────────────────────────────────────────────────────
 
 export async function listPlan(profileId: ID): Promise<PlanCell[]> {

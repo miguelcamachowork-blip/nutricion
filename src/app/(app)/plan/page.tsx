@@ -10,6 +10,7 @@ import {
   listMeals,
   listPlan,
   reorderGroups,
+  reorderMeals,
   setPlanCell,
   updateMeal,
 } from "@/lib/db/repos";
@@ -34,6 +35,7 @@ import {
 import {
   SortableContext,
   arrayMove,
+  horizontalListSortingStrategy,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -124,6 +126,25 @@ export default function PlanPage() {
     void reorderGroups(profileId, finalIds);
   }
 
+  function handleMealsDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = meals.findIndex((m) => m.id === active.id);
+    const newIdx = meals.findIndex((m) => m.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const reordered = arrayMove(meals, oldIdx, newIdx).map((m) => m.id);
+    void reorderMeals(profileId, reordered);
+  }
+
+  function handleCombinedDragEnd(e: DragEndEvent) {
+    const { active } = e;
+    if (meals.some((m) => m.id === active.id)) {
+      handleMealsDragEnd(e);
+    } else {
+      handleDragEnd(e);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 sm:px-6 sm:py-6">
       <SectionHeader
@@ -158,37 +179,37 @@ export default function PlanPage() {
 
       <Card variant="elevated" className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[var(--primary)] text-[color:var(--primary-foreground)]">
-                <th className="sticky left-0 z-10 bg-[var(--primary)] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[color:var(--primary-foreground)]/85 min-w-40">
-                  Grupo
-                </th>
-                {meals.map((m) => (
-                  <th
-                    key={m.id}
-                    className="px-2 py-2 text-center font-medium min-w-32 border-l border-[color:var(--primary-foreground)]/15 text-[color:var(--primary-foreground)]"
-                  >
-                    <MealHeader meal={m} />
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleCombinedDragEnd}
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-[var(--primary)] text-[color:var(--primary-foreground)]">
+                  <th className="sticky left-0 z-10 bg-[var(--primary)] px-4 py-3 align-top text-left text-xs font-semibold uppercase tracking-wide text-[color:var(--primary-foreground)]/85 min-w-40">
+                    Grupo
                   </th>
-                ))}
-                <th
-                  className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide border-l border-[color:var(--primary-foreground)]/15 text-[color:var(--primary-foreground)]/85"
-                  style={{
-                    backgroundColor:
-                      "color-mix(in oklab, var(--primary), black 18%)",
-                  }}
-                >
-                  Total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
+                  <SortableContext
+                    items={meals.map((m) => m.id)}
+                    strategy={horizontalListSortingStrategy}
+                  >
+                    {meals.map((m) => (
+                      <SortableMealHeaderCell key={m.id} meal={m} />
+                    ))}
+                  </SortableContext>
+                  <th
+                    className="px-4 py-3 align-top text-center text-xs font-semibold uppercase tracking-wide border-l-4 border-[var(--primary)] text-[color:var(--primary-foreground)]/85 min-w-24"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in oklab, var(--primary), black 28%)",
+                    }}
+                  >
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
                 <SortableContext
                   items={visibleGroups.map((g) => g.id)}
                   strategy={verticalListSortingStrategy}
@@ -205,29 +226,29 @@ export default function PlanPage() {
                     />
                   ))}
                 </SortableContext>
-              </DndContext>
-              {groups.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={meals.length + 2}
-                    className="py-10 text-center text-[var(--muted-foreground)]"
-                  >
-                    No hay grupos.
-                  </td>
-                </tr>
-              )}
-              {groups.length > 0 && visibleGroups.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={meals.length + 2}
-                    className="py-10 text-center text-[var(--muted-foreground)]"
-                  >
-                    Todos los grupos están vacíos. Pulsa &quot;Mostrar todos&quot; para verlos.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                {groups.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={meals.length + 2}
+                      className="py-10 text-center text-[var(--muted-foreground)]"
+                    >
+                      No hay grupos.
+                    </td>
+                  </tr>
+                )}
+                {groups.length > 0 && visibleGroups.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={meals.length + 2}
+                      className="py-10 text-center text-[var(--muted-foreground)]"
+                    >
+                      Todos los grupos están vacíos. Pulsa &quot;Mostrar todos&quot; para verlos.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </DndContext>
         </div>
       </Card>
     </div>
@@ -319,18 +340,55 @@ function SortableGroupRow({
         );
       })}
       <td
-        className="px-3 py-2.5 text-center font-semibold tabular-nums border-t border-l border-[var(--border)]"
-        style={
-          total > 0
-            ? {
-                backgroundColor: `color-mix(in oklab, ${color} ${22 + Math.min(1, total / 8) * 22}%, transparent)`,
-              }
-            : undefined
-        }
+        className="px-4 py-2.5 text-center font-semibold tabular-nums border-t border-l-4 border-[var(--primary)] min-w-24"
+        style={{
+          backgroundColor:
+            total > 0
+              ? `color-mix(in oklab, ${color} ${22 + Math.min(1, total / 8) * 22}%, var(--card-2))`
+              : "var(--card-2)",
+        }}
       >
         {formatPortion(total)}
       </td>
     </tr>
+  );
+}
+
+function SortableMealHeaderCell({ meal }: { meal: Meal }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: meal.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    position: isDragging ? "relative" : undefined,
+    zIndex: isDragging ? 20 : undefined,
+  };
+  return (
+    <th
+      ref={setNodeRef}
+      style={style}
+      className="px-2 py-2 align-top text-center font-medium min-w-32 border-l border-[color:var(--primary-foreground)]/15 text-[color:var(--primary-foreground)]"
+    >
+      <div className="flex flex-col items-center gap-0.5">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={`Reordenar ${meal.label}`}
+          className="-mb-0.5 flex h-5 w-6 cursor-grab items-center justify-center rounded text-[color:var(--primary-foreground)]/70 hover:bg-[color:var(--primary-foreground)]/15 active:cursor-grabbing touch-none"
+        >
+          <GripVertical className="h-3.5 w-3.5 rotate-90" />
+        </button>
+        <MealHeader meal={meal} />
+      </div>
+    </th>
   );
 }
 

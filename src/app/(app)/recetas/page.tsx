@@ -35,7 +35,8 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { recipePortionsByGroup } from "@/lib/balance";
+import { amountToPortions, formatPortion, recipePortionsByGroup } from "@/lib/balance";
+import { getGroupColor } from "@/lib/ui/groupColor";
 import type { Food, ScheduledRecipe } from "@/lib/types";
 
 /**
@@ -361,6 +362,14 @@ function MealSlotCard({
     () => new Map(foods.map((f) => [f.id, f])),
     [foods],
   );
+  const groupById = useMemo(
+    () => new Map(groups.map((g) => [g.id, g])),
+    [groups],
+  );
+  const unitById = useMemo(
+    () => new Map(units.map((u) => [u.id, u])),
+    [units],
+  );
 
   /**
    * Calls the AI route, persists the result as a `source: "ai"` scheduled
@@ -466,6 +475,84 @@ function MealSlotCard({
             {recipe.items.length === 1 ? "" : "s"} ·{" "}
             {totalPortions.toFixed(1).replace(/\.0$/, "")} porc. en total
           </p>
+          {recipe.items.length > 0 && (
+            <div className="overflow-x-auto rounded-md border border-[var(--border)]">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "32%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "12%" }} />
+                </colgroup>
+                <thead>
+                  <tr className="bg-[var(--card-2)] text-left text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                    <th className="px-3 py-2 font-medium">Grupo</th>
+                    <th className="px-2 py-2 font-medium">Alimento</th>
+                    <th className="px-2 py-2 font-medium text-right tabular-nums">
+                      Cant.
+                    </th>
+                    <th className="px-2 py-2 font-medium">Unidades</th>
+                    <th className="px-3 py-2 font-medium text-right tabular-nums">
+                      Porc.
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {recipe.items.map((it, i) => {
+                    const food = foodById.get(it.foodId);
+                    const unit = food && unitById.get(food.unitId);
+                    const porciones = food
+                      ? amountToPortions(it.amount, food)
+                      : 0;
+                    const color = food
+                      ? getGroupColor(food.groupId)
+                      : "var(--muted)";
+                    const groupLabel = food
+                      ? groupById.get(food.groupId)?.label ?? ""
+                      : "";
+                    return (
+                      <tr key={i}>
+                        <td className="px-3 py-2">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              aria-hidden
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: color }}
+                            />
+                            <span
+                              className="truncate text-[var(--muted-foreground)]"
+                              title={groupLabel}
+                            >
+                              {groupLabel}
+                            </span>
+                          </span>
+                        </td>
+                        <td
+                          className="px-2 py-2 truncate font-medium"
+                          title={food?.name ?? ""}
+                        >
+                          {food?.name ?? "—"}
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">
+                          {formatPortion(it.amount)}
+                        </td>
+                        <td
+                          className="px-2 py-2 truncate text-[var(--muted-foreground)]"
+                          title={unit?.label ?? ""}
+                        >
+                          {unit?.label ?? ""}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium text-[var(--foreground-soft)]">
+                          {formatPortion(porciones)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           {recipe.preparation && recipe.preparation.length > 0 && (
             <div className="rounded-md border border-[var(--border)] bg-[var(--card-2)] px-3 py-2.5">
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">

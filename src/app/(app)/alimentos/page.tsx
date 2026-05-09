@@ -196,8 +196,8 @@ export default function AlimentosPage() {
                 <tr>
                   <th className="py-2 pr-2 font-medium w-10"></th>
                   <th className="py-2 pr-3 font-medium">Alimento</th>
-                  <th className="py-2 pr-3 font-medium w-40">Unidad</th>
-                  <th className="py-2 pr-3 font-medium w-32">Cantidad</th>
+                  <th className="py-2 pr-3 font-medium w-24 sm:w-32 md:w-40">Unidad</th>
+                  <th className="py-2 pr-3 font-medium w-20 sm:w-24 md:w-32">Cantidad</th>
                   <th className="py-2 pr-3 font-medium w-12"></th>
                 </tr>
               </thead>
@@ -209,7 +209,7 @@ export default function AlimentosPage() {
                       className="py-6 text-center text-[var(--color-muted-foreground)]"
                     >
                       {search.trim()
-                        ? `Ningún alimento de este grupo empieza con “${search}”.`
+                        ? `Ningún alimento de este grupo coincide con “${search}”.`
                         : "Sin alimentos. Añade el primero."}
                     </td>
                   </tr>
@@ -542,7 +542,7 @@ function AddFoodDialog({
               className="mt-1"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="funit">Unidad</Label>
               <Select

@@ -1181,7 +1181,7 @@ function GroupEditor({
           </table>
 
           {/* Móvil: apilado */}
-          <div className="sm:hidden grid grid-cols-2 gap-2">
+          <div className="sm:hidden grid grid-cols-1 gap-2 min-[400px]:grid-cols-2">
             <label className="col-span-2 text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]">
               Alimento
               <Select

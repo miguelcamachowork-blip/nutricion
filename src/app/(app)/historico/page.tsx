@@ -32,9 +32,9 @@ export default function HistoricoPage() {
   const [selected, setSelected] = useState<string>(todayISO());
 
   const meals = useLiveQuery(() => listMeals(profileId), [profileId]) ?? EMPTY;
-  const groups = useLiveQuery(() => listGroups(profileId), [profileId]) ?? EMPTY;
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? EMPTY;
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? EMPTY;
+  const groups = useLiveQuery(() => listGroups(), []) ?? EMPTY;
+  const foods = useLiveQuery(() => listFoods(), []) ?? EMPTY;
+  const units = useLiveQuery(() => listUnits(), []) ?? EMPTY;
 
   const planSnapDates =
     useLiveQuery(() => listPlanSnapshotDates(profileId), [profileId]) ?? EMPTY;

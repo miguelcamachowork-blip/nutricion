@@ -85,7 +85,7 @@ async function handlePlanChange(
 export default function PlanPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
   const meals = useLiveQuery(() => listMeals(profileId), [profileId]) ?? EMPTY;
-  const groups = useLiveQuery(() => listGroups(profileId), [profileId]) ?? EMPTY;
+  const groups = useLiveQuery(() => listGroups(), []) ?? EMPTY;
   const plan = useLiveQuery(() => listPlan(profileId), [profileId]) ?? EMPTY;
   const [hideEmpty, setHideEmpty] = useState(false);
 
@@ -123,7 +123,7 @@ export default function PlanPage() {
     const finalIds = groups.map((g) =>
       visibleSet.has(g.id) ? reordered[i++] : g.id,
     );
-    void reorderGroups(profileId, finalIds);
+    void reorderGroups(finalIds);
   }
 
   function handleMealsDragEnd(e: DragEndEvent) {

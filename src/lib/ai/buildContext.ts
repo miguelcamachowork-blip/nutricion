@@ -2,6 +2,7 @@ import type {
   Food,
   FoodGroup,
   ForbiddenItem,
+  FreeUseFood,
   Meal,
   PlanCell,
   UnitType,
@@ -33,6 +34,10 @@ export interface AIMealContext {
   }>;
   forbiddenFoodNames: string[];
   forbiddenGroupNames: string[];
+  /** Foods the user wants the recipe to include (must come from groupTargets). */
+  forcedFoods: Array<{ groupName: string; foodName: string }>;
+  /** Optional condiments/flavorings the AI may use without counting portions. */
+  freeUseFoods: string[];
 }
 
 export function buildMealContext(input: {
@@ -43,8 +48,20 @@ export function buildMealContext(input: {
   plan: Pick<PlanCell, "mealId" | "groupId" | "portions">[];
   forbidden: ForbiddenItem[];
   date?: string;
+  forcedFoodIds?: string[];
+  freeUseFoods?: FreeUseFood[];
 }): AIMealContext {
-  const { meal, groups, foods, units, plan, forbidden, date } = input;
+  const {
+    meal,
+    groups,
+    foods,
+    units,
+    plan,
+    forbidden,
+    date,
+    forcedFoodIds,
+    freeUseFoods,
+  } = input;
   const { groupIds: forbiddenGroupIds, foodIds: forbiddenFoodIds } =
     partitionForbidden(forbidden);
 
@@ -80,11 +97,36 @@ export function buildMealContext(input: {
     .filter((g) => forbiddenGroupIds.has(g.id))
     .map((g) => g.label);
 
+  // Resolve forced foods: must exist in groupTargets (i.e. catalog,
+  // planned for this meal, not forbidden). Silently drop ineligible ones.
+  const groupNameById = new Map(groups.map((g) => [g.id, g.label]));
+  const eligibleFoodIds = new Set(
+    groupTargets.flatMap((g) => g.foods.map((f) => f.id)),
+  );
+  const forcedFoods: AIMealContext["forcedFoods"] = [];
+  for (const fid of forcedFoodIds ?? []) {
+    if (!eligibleFoodIds.has(fid)) continue;
+    const food = foods.find((f) => f.id === fid);
+    if (!food) continue;
+    const groupName = groupNameById.get(food.groupId);
+    if (!groupName) continue;
+    forcedFoods.push({ groupName, foodName: food.name });
+  }
+
+  const forbiddenSet = new Set(
+    forbiddenFoodNames.map((n) => n.toLowerCase().trim()),
+  );
+  const freeUseList = (freeUseFoods ?? [])
+    .map((f) => f.name)
+    .filter((n) => !forbiddenSet.has(n.toLowerCase().trim()));
+
   return {
     meal: { id: meal.id, label: meal.label, time: meal.time },
     date,
     groupTargets,
     forbiddenFoodNames,
     forbiddenGroupNames,
+    forcedFoods,
+    freeUseFoods: freeUseList,
   };
 }

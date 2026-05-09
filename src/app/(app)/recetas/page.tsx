@@ -58,9 +58,9 @@ export default function RecetasCalendarPage() {
   const selectedISO = toISODate(selected);
 
   const meals = useLiveQuery(() => listMeals(profileId), [profileId]) ?? [];
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? [];
-  const groups = useLiveQuery(() => listGroups(profileId), [profileId]) ?? [];
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? [];
+  const foods = useLiveQuery(() => listFoods(), []) ?? [];
+  const groups = useLiveQuery(() => listGroups(), []) ?? [];
+  const units = useLiveQuery(() => listUnits(), []) ?? [];
   const forbidden =
     useLiveQuery(() => listForbidden(profileId), [profileId]) ?? [];
   // Load all scheduled recipes for this profile (the dataset will stay small
@@ -94,7 +94,7 @@ export default function RecetasCalendarPage() {
         incompleteDays: [] as Date[],
         reviewDays: [] as Date[],
       };
-    const foodsArr = await listFoods(profileId);
+    const foodsArr = await listFoods();
     const foodById = new Map(foodsArr.map((f) => [f.id, f]));
     const completeDays: Date[] = [];
     const incompleteDays: Date[] = [];

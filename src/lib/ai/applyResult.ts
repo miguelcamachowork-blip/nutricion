@@ -9,6 +9,10 @@ import type { AIRecipe } from "./schema";
  * the LLM can be slightly off without us discarding the suggestion. Items
  * whose food cannot be matched are reported in `unresolved` rather than
  * silently dropped — the UI surfaces them so the user can correct them.
+ *
+ * Items flagged with `freeUse: true` (water, ice, spices...) are NOT
+ * resolved against the catalog; they are returned in `freeUseNames` so
+ * the UI can append them to `preparation` / show them as chips.
  */
 export interface ApplyResult {
   items: RecipeItem[];
@@ -18,6 +22,7 @@ export interface ApplyResult {
     amount: number;
     reason: "unknown-food" | "wrong-group";
   }>;
+  freeUseNames: string[];
 }
 
 export function applyAIRecipe(
@@ -37,8 +42,15 @@ export function applyAIRecipe(
 
   const items: RecipeItem[] = [];
   const unresolved: ApplyResult["unresolved"] = [];
+  const freeUseNames: string[] = [];
 
   for (const it of ai.items) {
+    if (it.freeUse) {
+      // Free-use items are surfaced as text only; they don't take
+      // portions and don't need a Food row.
+      freeUseNames.push(it.foodName);
+      continue;
+    }
     const food = foodByNorm.get(norm(it.foodName));
     if (!food) {
       unresolved.push({
@@ -63,8 +75,10 @@ export function applyAIRecipe(
         reason: "wrong-group",
       });
     }
-    items.push({ foodId: food.id, amount: it.amount });
+    if (it.amount > 0) {
+      items.push({ foodId: food.id, amount: it.amount });
+    }
   }
 
-  return { items, unresolved };
+  return { items, unresolved, freeUseNames };
 }

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
 import {
+  addFreeUseFood,
   backupCounts,
   createProfile,
+  deleteFreeUseFood,
   deleteProfile,
   exportAllData,
   exportCatalog,
@@ -15,8 +17,10 @@ import {
   importCatalog,
   importPlan,
   importRecipes,
+  listFreeUseFoods,
   listProfiles,
   renameProfile,
+  updateFreeUseFood,
   type FullBackup,
   type ImportMode,
 } from "@/lib/db/repos";
@@ -35,11 +39,14 @@ import {
   HardDrive,
   LogOut,
   Pencil,
+  Plus,
   Save,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Upload,
   UserPlus,
+  X,
 } from "lucide-react";
 import { uid } from "@/lib/utils";
 import {
@@ -147,6 +154,9 @@ export default function AjustesPage() {
         </ul>
       </Card>
 
+      {/* Free-use foods (global) */}
+      <FreeUseFoodsCard />
+
       {/* Per-section export/import */}
       {activeProfileId && (
         <Card variant="elevated" className="p-4 sm:p-5">
@@ -159,8 +169,8 @@ export default function AjustesPage() {
             <SectionIO
               title="Catálogo"
               description="Grupos, alimentos, unidades y cantidades."
-              onExport={() => exportCatalog(activeProfileId)}
-              onImport={(data) => importCatalog(activeProfileId, data)}
+              onExport={() => exportCatalog()}
+              onImport={(data) => importCatalog(data)}
               filename="catalogo"
             />
             <SectionIO
@@ -207,6 +217,123 @@ export default function AjustesPage() {
         </Button>
       </Card>
     </div>
+  );
+}
+
+function FreeUseFoodsCard() {
+  const items = useLiveQuery(() => listFreeUseFoods(), []) ?? [];
+  const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+
+  async function add() {
+    const name = draft.trim();
+    if (!name) return;
+    await addFreeUseFood(name);
+    setDraft("");
+  }
+
+  return (
+    <Card variant="elevated" className="p-4 sm:p-5">
+      <div className="mb-1 flex items-center gap-2 font-semibold">
+        <Sparkles className="h-4 w-4 text-[var(--color-primary)]" />
+        Alimentos de libre uso
+      </div>
+      <p className="mb-3 text-sm text-[var(--muted-foreground)]">
+        Globales para todos los perfiles. La IA puede usarlos como aderezos o
+        complementos sin contar porciones (agua, hielo, especias, etc.).
+      </p>
+      <div className="mb-3 flex gap-2">
+        <Input
+          placeholder='Ej. "Stevia", "Vinagre"'
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void add();
+          }}
+        />
+        <Button onClick={() => void add()} disabled={!draft.trim()}>
+          <Plus className="h-4 w-4" />
+          Añadir
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <div className="text-sm text-[var(--muted-foreground)]">
+          Aún no hay alimentos de libre uso.
+        </div>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {items.map((it) =>
+            editingId === it.id ? (
+              <li key={it.id} className="flex items-center gap-1">
+                <Input
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === "Enter" && editingName.trim()) {
+                      await updateFreeUseFood(it.id, {
+                        name: editingName.trim(),
+                      });
+                      setEditingId(null);
+                    } else if (e.key === "Escape") {
+                      setEditingId(null);
+                    }
+                  }}
+                  className="h-8 w-40"
+                  autoFocus
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    if (!editingName.trim()) return;
+                    await updateFreeUseFood(it.id, {
+                      name: editingName.trim(),
+                    });
+                    setEditingId(null);
+                  }}
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setEditingId(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </li>
+            ) : (
+              <li
+                key={it.id}
+                className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-1 pl-3 pr-1 text-sm"
+              >
+                <span>{it.name}</span>
+                <button
+                  type="button"
+                  className="rounded-full p-1 text-[var(--muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+                  onClick={() => {
+                    setEditingId(it.id);
+                    setEditingName(it.name);
+                  }}
+                  aria-label={`Renombrar ${it.name}`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full p-1 text-[var(--muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+                  onClick={() => void deleteFreeUseFood(it.id)}
+                  aria-label={`Eliminar ${it.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+    </Card>
   );
 }
 

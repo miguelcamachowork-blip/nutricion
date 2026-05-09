@@ -23,7 +23,6 @@ export type GroupKey =
 
 export interface FoodGroup {
   id: ID;
-  profileId: ID;
   key: GroupKey;
   label: string;
   order: number;
@@ -34,7 +33,6 @@ export interface FoodGroup {
 
 export interface Food {
   id: ID;
-  profileId: ID;
   groupId: ID;
   name: string;
   /** Reference to a UnitType (e.g. Piezas, Gramos). */
@@ -47,16 +45,26 @@ export interface Food {
 
 export interface UnitType {
   id: ID;
-  profileId: ID;
   label: string;
   order: number;
 }
 
 export interface QuantityOption {
   id: ID;
-  profileId: ID;
   value: number;
   order: number;
+}
+
+/**
+ * A "free-use" food: ingredient with no portion accounting (e.g. water,
+ * ice, stevia, gelatin, lemon, salt, spices). Available globally and used
+ * by the AI assistant to enrich recipes without counting against any group.
+ */
+export interface FreeUseFood {
+  id: ID;
+  name: string;
+  notes?: string;
+  createdAt: number;
 }
 
 export type ForbiddenKind = "food" | "group" | "custom";

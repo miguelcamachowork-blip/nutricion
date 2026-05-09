@@ -39,6 +39,15 @@ const requestSchema = z.object({
       .min(1, "El plan no tiene porciones para este horario"),
     forbiddenFoodNames: z.array(z.string()).default([]),
     forbiddenGroupNames: z.array(z.string()).default([]),
+    forcedFoods: z
+      .array(
+        z.object({
+          groupName: z.string().min(1),
+          foodName: z.string().min(1),
+        }),
+      )
+      .default([]),
+    freeUseFoods: z.array(z.string()).default([]),
   }),
 });
 

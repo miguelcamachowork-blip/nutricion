@@ -24,7 +24,7 @@ import { Button, Card, Input, Label, Select } from "@/components/ui/primitives";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Ban, Lock, LockOpen, Pencil, Plus, Search, Settings2, StickyNote, Trash2, X, Download, Upload } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, normalizeText, compareNames } from "@/lib/utils";
 import { formatPortion } from "@/lib/balance";
 import { getGroupColor } from "@/lib/ui/groupColor";
 import Link from "next/link";
@@ -34,11 +34,11 @@ const EMPTY: never[] = [];
 export default function AlimentosPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
   const groups =
-    useLiveQuery(() => listGroups(profileId), [profileId]) ?? EMPTY;
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? EMPTY;
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? EMPTY;
+    useLiveQuery(() => listGroups(), []) ?? EMPTY;
+  const foods = useLiveQuery(() => listFoods(), []) ?? EMPTY;
+  const units = useLiveQuery(() => listUnits(), []) ?? EMPTY;
   const quantities =
-    useLiveQuery(() => listQuantities(profileId), [profileId]) ?? EMPTY;
+    useLiveQuery(() => listQuantities(), []) ?? EMPTY;
   const forbidden =
     useLiveQuery(() => listForbidden(profileId), [profileId]) ?? EMPTY;
   const { groupIds: forbiddenGroupIds, foodIds: forbiddenFoodIds } = useMemo(
@@ -58,10 +58,13 @@ export default function AlimentosPage() {
   }, [searchOpen]);
 
   const filtered = useMemo(() => {
-    const inGroup = foods.filter((f) => f.groupId === tabId);
-    const q = normalize(search).trim();
+    const inGroup = foods
+      .filter((f) => f.groupId === tabId)
+      .slice()
+      .sort((a, b) => compareNames(a.name, b.name));
+    const q = normalizeText(search).trim();
     if (!q) return inGroup;
-    return inGroup.filter((f) => normalize(f.name).startsWith(q));
+    return inGroup.filter((f) => normalizeText(f.name).includes(q));
   }, [foods, tabId, search]);
 
   const activeColor = tabId ? getGroupColor(tabId) : "var(--primary)";
@@ -168,7 +171,7 @@ export default function AlimentosPage() {
                 ref={searchRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Empieza a escribir para filtrar (ej. “No” → Nopal…)"
+                placeholder="Buscar alimento (ej. “broc” → Brócoli, Gérmen de brócoli…)"
               />
             </div>
           )}
@@ -489,7 +492,7 @@ function AddGroupDialog({ profileId }: { profileId: string }) {
             <Button
               onClick={async () => {
                 if (!name.trim()) return;
-                await addGroup(profileId, name.trim());
+                await addGroup(name.trim());
                 setName("");
                 setOpen(false);
               }}
@@ -585,7 +588,6 @@ function AddFoodDialog({
               onClick={async () => {
                 if (!name.trim() || !unitId || !quantity) return;
                 await addFood(
-                  profileId,
                   groupId,
                   name.trim(),
                   unitId,
@@ -606,11 +608,6 @@ function AddFoodDialog({
   );
 }
 
-/** Lowercase + strip diacritics for prefix-search comparison. */
-function normalize(s: string): string {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-
 
 function CatalogIO({ profileId }: { profileId: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -619,7 +616,7 @@ function CatalogIO({ profileId }: { profileId: string }) {
       <Button
         variant="outline"
         onClick={async () => {
-          const data = await exportCatalog(profileId);
+          const data = await exportCatalog();
           const blob = new Blob([JSON.stringify(data, null, 2)], {
             type: "application/json",
           });
@@ -656,7 +653,7 @@ function CatalogIO({ profileId }: { profileId: string }) {
           try {
             const text = await file.text();
             const parsed = JSON.parse(text);
-            await importCatalog(profileId, parsed);
+            await importCatalog(parsed);
             alert("Cat�logo importado.");
           } catch (err) {
             alert((err as Error).message || "Error al importar.");

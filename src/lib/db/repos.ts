@@ -1,10 +1,18 @@
 import { getDB } from "./database";
 import { uid, todayISO } from "@/lib/utils";
-import { SEED_FOODS, makeSeedFor } from "@/lib/seed";
+import {
+  SEED_FOODS,
+  SEED_FREE_USE_FOODS,
+  SEED_GROUPS,
+  SEED_QUANTITIES,
+  SEED_UNITS,
+  makeMealsSeedFor,
+} from "@/lib/seed";
 import type {
   Food,
   FoodGroup,
   ForbiddenItem,
+  FreeUseFood,
   ID,
   Meal,
   PlanCell,
@@ -25,47 +33,96 @@ export async function listProfiles(): Promise<Profile[]> {
   return getDB().profiles.orderBy("createdAt").toArray();
 }
 
+/**
+ * Idempotent: ensures the global catalog tables (groups, foods, units,
+ * quantities, freeUseFoods) have at least the seed contents. Safe to call
+ * on every app boot — it only adds missing rows, never overwrites user data.
+ */
+export async function ensureGlobalCatalog(): Promise<void> {
+  const db = getDB();
+  const [groupCount, unitCount, qtyCount, foodCount, freeCount] = await Promise.all([
+    db.groups.count(),
+    db.unitTypes.count(),
+    db.quantityOptions.count(),
+    db.foods.count(),
+    db.freeUseFoods.count(),
+  ]);
+
+  if (groupCount === 0) {
+    const groups: FoodGroup[] = SEED_GROUPS.map((g, i) => ({
+      id: `g:${g.key}`,
+      key: g.key,
+      label: g.label,
+      order: i,
+      removable: g.removable,
+    }));
+    await db.groups.bulkAdd(groups);
+  }
+  if (unitCount === 0) {
+    const units: UnitType[] = SEED_UNITS.map((label, i) => ({
+      id: `u:${i}`,
+      label,
+      order: i,
+    }));
+    await db.unitTypes.bulkAdd(units);
+  }
+  if (qtyCount === 0) {
+    const qtys: QuantityOption[] = SEED_QUANTITIES.map((value, i) => ({
+      id: `q:${i}`,
+      value,
+      order: i,
+    }));
+    await db.quantityOptions.bulkAdd(qtys);
+  }
+  if (foodCount === 0) {
+    const groups = await db.groups.toArray();
+    const groupByKey = new Map(groups.map((g) => [g.key, g]));
+    const units = await db.unitTypes.toArray();
+    const unitByLabel = new Map(units.map((u) => [u.label, u]));
+    const piezas = unitByLabel.get("Piezas");
+    const foods: Food[] = [];
+    for (const g of SEED_GROUPS) {
+      const targetGroup = groupByKey.get(g.key);
+      if (!targetGroup) continue;
+      const list = SEED_FOODS[g.key as keyof typeof SEED_FOODS] ?? [];
+      for (const f of list) {
+        foods.push({
+          id: uid(),
+          groupId: targetGroup.id,
+          name: f.name,
+          unitId: unitByLabel.get(f.unit)?.id ?? piezas?.id ?? "u:0",
+          quantity: f.quantity,
+        });
+      }
+    }
+    if (foods.length > 0) await db.foods.bulkAdd(foods);
+  }
+  if (freeCount === 0) {
+    const now = Date.now();
+    const free: FreeUseFood[] = SEED_FREE_USE_FOODS.map((name, i) => ({
+      id: `free:${i}`,
+      name,
+      createdAt: now + i,
+    }));
+    if (free.length > 0) await db.freeUseFoods.bulkAdd(free);
+  }
+}
+
 export async function createProfile(name: string): Promise<Profile> {
   const db = getDB();
+  await ensureGlobalCatalog();
   const profile: Profile = {
     id: uid(),
     name: name.trim() || "Perfil",
     createdAt: Date.now(),
   };
-  const seed = makeSeedFor(profile.id);
-  const unitIdByLabel = new Map(seed.units.map((u) => [u.label, u.id]));
-  const piezasId = unitIdByLabel.get("Piezas")!;
-  const foods: Food[] = [];
-  for (const g of seed.groups) {
-    const list = SEED_FOODS[g.key as keyof typeof SEED_FOODS] ?? [];
-    for (const f of list) {
-      foods.push({
-        id: uid(),
-        profileId: profile.id,
-        groupId: g.id,
-        name: f.name,
-        unitId: unitIdByLabel.get(f.unit) ?? piezasId,
-        quantity: f.quantity,
-      });
-    }
-  }
+  const meals = makeMealsSeedFor(profile.id);
   await db.transaction(
     "rw",
-    [
-      db.profiles,
-      db.groups,
-      db.meals,
-      db.foods,
-      db.unitTypes,
-      db.quantityOptions,
-    ],
+    [db.profiles, db.meals],
     async () => {
       await db.profiles.add(profile);
-      await db.groups.bulkAdd(seed.groups);
-      await db.meals.bulkAdd(seed.meals);
-      await db.unitTypes.bulkAdd(seed.units);
-      await db.quantityOptions.bulkAdd(seed.quantities);
-      if (foods.length) await db.foods.bulkAdd(foods);
+      await db.meals.bulkAdd(meals);
     },
   );
   return profile;
@@ -77,27 +134,25 @@ export async function deleteProfile(profileId: ID): Promise<void> {
     "rw",
     [
       db.profiles,
-      db.groups,
       db.meals,
-      db.foods,
       db.planCells,
       db.recipes,
-      db.unitTypes,
-      db.quantityOptions,
       db.planSnapshots,
       db.recipeSnapshots,
+      db.forbiddenItems,
+      db.scheduledRecipes,
+      db.recipeDrafts,
     ],
     async () => {
       await db.profiles.delete(profileId);
-      await db.groups.where({ profileId }).delete();
       await db.meals.where({ profileId }).delete();
-      await db.foods.where({ profileId }).delete();
       await db.planCells.where({ profileId }).delete();
       await db.recipes.where({ profileId }).delete();
-      await db.unitTypes.where({ profileId }).delete();
-      await db.quantityOptions.where({ profileId }).delete();
       await db.planSnapshots.where({ profileId }).delete();
       await db.recipeSnapshots.where({ profileId }).delete();
+      await db.forbiddenItems.where({ profileId }).delete();
+      await db.scheduledRecipes.where({ profileId }).delete();
+      await db.recipeDrafts.where({ profileId }).delete();
     },
   );
 }
@@ -106,10 +161,10 @@ export async function renameProfile(id: ID, name: string): Promise<void> {
   await getDB().profiles.update(id, { name });
 }
 
-// ─── Groups ───────────────────────────────────────────────────────────────
+// ─── Groups (global) ──────────────────────────────────────────────────────
 
-export async function listGroups(profileId: ID): Promise<FoodGroup[]> {
-  const all = await getDB().groups.where("profileId").equals(profileId).toArray();
+export async function listGroups(): Promise<FoodGroup[]> {
+  const all = await getDB().groups.toArray();
   return all.sort((a, b) => a.order - b.order);
 }
 
@@ -122,15 +177,11 @@ export async function updateGroupNote(id: ID, note: string): Promise<void> {
   await getDB().groups.update(id, { note: trimmed === "" ? undefined : trimmed });
 }
 
-export async function addGroup(
-  profileId: ID,
-  label: string,
-): Promise<FoodGroup> {
-  const groups = await listGroups(profileId);
+export async function addGroup(label: string): Promise<FoodGroup> {
+  const groups = await listGroups();
   const order = (groups[groups.length - 1]?.order ?? -1) + 1;
   const g: FoodGroup = {
     id: uid(),
-    profileId,
     key: `CUSTOM_${order}`,
     label,
     order,
@@ -150,44 +201,32 @@ export async function deleteGroup(id: ID): Promise<void> {
 }
 
 /** Persist a new ordering for the given group ids (in the desired order). */
-export async function reorderGroups(
-  profileId: ID,
-  orderedIds: ID[],
-): Promise<void> {
+export async function reorderGroups(orderedIds: ID[]): Promise<void> {
   const db = getDB();
   await db.transaction("rw", db.groups, async () => {
     await Promise.all(
-      orderedIds.map((id, idx) =>
-        db.groups.update(id, { order: idx, profileId }),
-      ),
+      orderedIds.map((id, idx) => db.groups.update(id, { order: idx })),
     );
   });
 }
 
-// ─── Foods ────────────────────────────────────────────────────────────────
+// ─── Foods (global) ───────────────────────────────────────────────────────
 
-export async function listFoods(profileId: ID): Promise<Food[]> {
-  return getDB().foods.where("profileId").equals(profileId).toArray();
+export async function listFoods(): Promise<Food[]> {
+  return getDB().foods.toArray();
 }
 
-export async function listFoodsByGroup(
-  profileId: ID,
-  groupId: ID,
-): Promise<Food[]> {
-  return getDB()
-    .foods.where("[profileId+groupId]")
-    .equals([profileId, groupId])
-    .toArray();
+export async function listFoodsByGroup(groupId: ID): Promise<Food[]> {
+  return getDB().foods.where("groupId").equals(groupId).toArray();
 }
 
 export async function addFood(
-  profileId: ID,
   groupId: ID,
   name: string,
   unitId: ID,
   quantity: number,
 ): Promise<Food> {
-  const f: Food = { id: uid(), profileId, groupId, name, unitId, quantity };
+  const f: Food = { id: uid(), groupId, name, unitId, quantity };
   await getDB().foods.add(f);
   return f;
 }
@@ -203,23 +242,17 @@ export async function deleteFood(id: ID): Promise<void> {
   await getDB().foods.delete(id);
 }
 
-// ─── Units & Quantities ───────────────────────────────────────────────────
+// ─── Units & Quantities (global) ──────────────────────────────────────────
 
-export async function listUnits(profileId: ID): Promise<UnitType[]> {
-  const all = await getDB()
-    .unitTypes.where("profileId")
-    .equals(profileId)
-    .toArray();
+export async function listUnits(): Promise<UnitType[]> {
+  const all = await getDB().unitTypes.toArray();
   return all.sort((a, b) => a.order - b.order);
 }
 
-export async function addUnit(
-  profileId: ID,
-  label: string,
-): Promise<UnitType> {
-  const existing = await listUnits(profileId);
+export async function addUnit(label: string): Promise<UnitType> {
+  const existing = await listUnits();
   const order = (existing[existing.length - 1]?.order ?? -1) + 1;
-  const u: UnitType = { id: uid(), profileId, label: label.trim(), order };
+  const u: UnitType = { id: uid(), label: label.trim(), order };
   await getDB().unitTypes.add(u);
   return u;
 }
@@ -232,36 +265,24 @@ export async function deleteUnit(id: ID): Promise<void> {
   const db = getDB();
   const u = await db.unitTypes.get(id);
   if (!u) return;
-  const inUse = await db.foods
-    .where("profileId")
-    .equals(u.profileId)
-    .filter((f) => f.unitId === id)
-    .count();
+  const inUse = await db.foods.filter((f) => f.unitId === id).count();
   if (inUse > 0) {
     throw new Error(`No se puede eliminar: ${inUse} alimento(s) usan esta unidad.`);
   }
   await db.unitTypes.delete(id);
 }
 
-export async function listQuantities(
-  profileId: ID,
-): Promise<QuantityOption[]> {
-  const all = await getDB()
-    .quantityOptions.where("profileId")
-    .equals(profileId)
-    .toArray();
+export async function listQuantities(): Promise<QuantityOption[]> {
+  const all = await getDB().quantityOptions.toArray();
   return all.sort((a, b) => a.value - b.value);
 }
 
-export async function addQuantity(
-  profileId: ID,
-  value: number,
-): Promise<QuantityOption> {
-  const existing = await listQuantities(profileId);
+export async function addQuantity(value: number): Promise<QuantityOption> {
+  const existing = await listQuantities();
   const dup = existing.find((q) => q.value === value);
   if (dup) return dup;
   const order = (existing[existing.length - 1]?.order ?? -1) + 1;
-  const q: QuantityOption = { id: uid(), profileId, value, order };
+  const q: QuantityOption = { id: uid(), value, order };
   await getDB().quantityOptions.add(q);
   return q;
 }
@@ -270,10 +291,7 @@ export async function deleteQuantity(id: ID): Promise<void> {
   const db = getDB();
   const q = await db.quantityOptions.get(id);
   if (!q) return;
-  const candidates = await db.foods
-    .where("profileId")
-    .equals(q.profileId)
-    .toArray();
+  const candidates = await db.foods.toArray();
   const inUse = candidates.filter((f) => f.quantity === q.value).length;
   if (inUse > 0) {
     throw new Error(
@@ -281,6 +299,48 @@ export async function deleteQuantity(id: ID): Promise<void> {
     );
   }
   await db.quantityOptions.delete(id);
+}
+
+// ─── Free-use foods (global) ──────────────────────────────────────────────
+
+export async function listFreeUseFoods(): Promise<FreeUseFood[]> {
+  const all = await getDB().freeUseFoods.toArray();
+  return all.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function addFreeUseFood(
+  name: string,
+  notes?: string,
+): Promise<FreeUseFood | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const existing = await listFreeUseFoods();
+  const lower = trimmed.toLowerCase();
+  if (existing.some((f) => f.name.toLowerCase() === lower)) return null;
+  const f: FreeUseFood = {
+    id: uid(),
+    name: trimmed,
+    notes: notes?.trim() || undefined,
+    createdAt: Date.now(),
+  };
+  await getDB().freeUseFoods.add(f);
+  return f;
+}
+
+export async function updateFreeUseFood(
+  id: ID,
+  patch: Partial<Pick<FreeUseFood, "name" | "notes">>,
+): Promise<void> {
+  const clean: Partial<FreeUseFood> = { ...patch };
+  if (typeof clean.name === "string") clean.name = clean.name.trim();
+  if (typeof clean.notes === "string") {
+    clean.notes = clean.notes.trim() || undefined;
+  }
+  await getDB().freeUseFoods.update(id, clean);
+}
+
+export async function deleteFreeUseFood(id: ID): Promise<void> {
+  await getDB().freeUseFoods.delete(id);
 }
 
 // ─── Forbidden items ──────────────────────────────────────────────────────
@@ -647,16 +707,19 @@ export async function getRecipesAt(
   return recipes.map((r) => ({ mealId: r.mealId, items: r.items }));
 }
 
-// ─── Partial export / import (per profile) ────────────────────────────────
+// ─── Partial export / import ──────────────────────────────────────────────
+//
+// The "catalog" export is GLOBAL since v7 (foods, groups, units, quantities
+// are shared across all profiles). `forbidden` remains per-profile.
 
 export interface CatalogExport {
   kind: "catalog";
-  version: 1;
+  version: 2;
   groups: FoodGroup[];
   foods: Food[];
   units: UnitType[];
   quantities: QuantityOption[];
-  forbidden?: ForbiddenItem[];
+  freeUseFoods?: FreeUseFood[];
 }
 
 export interface PlanExport {
@@ -672,15 +735,15 @@ export interface RecipesExport {
   recipes: Recipe[];
 }
 
-export async function exportCatalog(profileId: ID): Promise<CatalogExport> {
+export async function exportCatalog(): Promise<CatalogExport> {
   return {
     kind: "catalog",
-    version: 1,
-    groups: await listGroups(profileId),
-    foods: await listFoods(profileId),
-    units: await listUnits(profileId),
-    quantities: await listQuantities(profileId),
-    forbidden: await listForbidden(profileId),
+    version: 2,
+    groups: await listGroups(),
+    foods: await listFoods(),
+    units: await listUnits(),
+    quantities: await listQuantities(),
+    freeUseFoods: await listFreeUseFoods(),
   };
 }
 
@@ -701,36 +764,36 @@ export async function exportRecipes(profileId: ID): Promise<RecipesExport> {
   };
 }
 
-/** Imports a catalog by REPLACING the current catalog of `profileId`. */
-export async function importCatalog(
-  profileId: ID,
-  data: CatalogExport,
-): Promise<void> {
+/** Imports a catalog by REPLACING the global catalog. */
+export async function importCatalog(data: CatalogExport): Promise<void> {
   if (data?.kind !== "catalog") throw new Error("Archivo no es un catálogo válido.");
   const db = getDB();
+  // Strip any legacy `profileId` field for backwards compat with v1 exports.
+  const stripPid = <T extends object>(rows: T[]): T[] =>
+    rows.map((r) => {
+      const copy = { ...r } as T & { profileId?: string };
+      delete copy.profileId;
+      return copy as T;
+    });
   await db.transaction(
     "rw",
-    [db.groups, db.foods, db.unitTypes, db.quantityOptions, db.forbiddenItems],
+    [db.groups, db.foods, db.unitTypes, db.quantityOptions, db.freeUseFoods],
     async () => {
-      await db.groups.where({ profileId }).delete();
-      await db.foods.where({ profileId }).delete();
-      await db.unitTypes.where({ profileId }).delete();
-      await db.quantityOptions.where({ profileId }).delete();
-      await db.forbiddenItems.where({ profileId }).delete();
-      await db.groups.bulkAdd(
-        data.groups.map((g) => ({ ...g, profileId })),
-      );
-      await db.foods.bulkAdd(data.foods.map((f) => ({ ...f, profileId })));
-      await db.unitTypes.bulkAdd(
-        data.units.map((u) => ({ ...u, profileId })),
-      );
+      await db.groups.clear();
+      await db.foods.clear();
+      await db.unitTypes.clear();
+      await db.quantityOptions.clear();
+      await db.groups.bulkAdd(stripPid(data.groups));
+      await db.foods.bulkAdd(stripPid(data.foods));
+      await db.unitTypes.bulkAdd(stripPid(data.units));
       await db.quantityOptions.bulkAdd(
-        data.quantities.map((q) => ({ ...q, profileId })),
+        stripPid(data.quantities),
       );
-      if (Array.isArray(data.forbidden) && data.forbidden.length > 0) {
-        await db.forbiddenItems.bulkAdd(
-          data.forbidden.map((it) => ({ ...it, profileId })),
-        );
+      if (Array.isArray(data.freeUseFoods)) {
+        await db.freeUseFoods.clear();
+        if (data.freeUseFoods.length > 0) {
+          await db.freeUseFoods.bulkAdd(data.freeUseFoods);
+        }
       }
     },
   );
@@ -775,27 +838,40 @@ export async function importRecipes(
 
 // ─── Full backup (all profiles, no historical snapshots) ──────────────────
 //
-// The "full backup" is the user's portable data: every profile and its
-// catalog/plan/recipes. It deliberately excludes `planSnapshots` and
+// The "full backup" is the user's portable data: every profile and the
+// global catalog. It deliberately excludes `planSnapshots` and
 // `recipeSnapshots`, which are *device-local history*. Restoring a backup
 // on a different device must not pollute that device's history.
+//
+// v1 backups: per-profile catalog (foods/groups/units/quantities had
+//             profileId). The first profile's catalog is used as the base
+//             when restoring; references in plan/recipes/forbidden of
+//             other profiles are remapped by group key / food name.
+// v2 backups: global catalog + global freeUseFoods. Plan/recipes/
+//             forbidden/scheduled/drafts remain per-profile.
 
-export const FULL_BACKUP_VERSION = 1 as const;
+export const FULL_BACKUP_VERSION = 2 as const;
 
 export interface FullBackup {
   kind: "nutricion-mcz/full";
-  version: typeof FULL_BACKUP_VERSION;
+  version: 1 | typeof FULL_BACKUP_VERSION;
   exportedAt: string;
   profiles: Profile[];
-  groups: FoodGroup[];
-  foods: Food[];
+  /** Global since v2 (legacy v1 had per-profile rows with `profileId`). */
+  groups: (FoodGroup & { profileId?: string })[];
+  foods: (Food & { profileId?: string })[];
   meals: Meal[];
   planCells: PlanCell[];
   recipes: Recipe[];
-  unitTypes: UnitType[];
-  quantityOptions: QuantityOption[];
-  /** Optional for backwards compatibility with v1 backups that predate the field. */
+  unitTypes: (UnitType & { profileId?: string })[];
+  quantityOptions: (QuantityOption & { profileId?: string })[];
+  /** Optional for backwards compat with older backups. */
   forbiddenItems?: ForbiddenItem[];
+  /** Optional for backwards compat with v1 backups. */
+  scheduledRecipes?: ScheduledRecipe[];
+  recipeDrafts?: RecipeDraft[];
+  /** v2+ global free-use foods. */
+  freeUseFoods?: FreeUseFood[];
 }
 
 export interface BackupCounts {
@@ -808,6 +884,7 @@ export interface BackupCounts {
   unitTypes: number;
   quantityOptions: number;
   forbiddenItems: number;
+  freeUseFoods: number;
 }
 
 export function backupCounts(b: FullBackup): BackupCounts {
@@ -821,10 +898,11 @@ export function backupCounts(b: FullBackup): BackupCounts {
     unitTypes: b.unitTypes.length,
     quantityOptions: b.quantityOptions.length,
     forbiddenItems: b.forbiddenItems?.length ?? 0,
+    freeUseFoods: b.freeUseFoods?.length ?? 0,
   };
 }
 
-/** Snapshot of every user-editable table across all profiles. */
+/** Snapshot of every user-editable table across all profiles + global catalog. */
 export async function exportAllData(): Promise<FullBackup> {
   const db = getDB();
   const [
@@ -837,6 +915,9 @@ export async function exportAllData(): Promise<FullBackup> {
     unitTypes,
     quantityOptions,
     forbiddenItems,
+    scheduledRecipes,
+    recipeDrafts,
+    freeUseFoods,
   ] = await Promise.all([
     db.profiles.toArray(),
     db.groups.toArray(),
@@ -847,6 +928,9 @@ export async function exportAllData(): Promise<FullBackup> {
     db.unitTypes.toArray(),
     db.quantityOptions.toArray(),
     db.forbiddenItems.toArray(),
+    db.scheduledRecipes.toArray(),
+    db.recipeDrafts.toArray(),
+    db.freeUseFoods.toArray(),
   ]);
   return {
     kind: "nutricion-mcz/full",
@@ -861,6 +945,9 @@ export async function exportAllData(): Promise<FullBackup> {
     unitTypes,
     quantityOptions,
     forbiddenItems,
+    scheduledRecipes,
+    recipeDrafts,
+    freeUseFoods,
   };
 }
 
@@ -901,17 +988,128 @@ export function assertFullBackup(value: unknown): asserts value is FullBackup {
 export type ImportMode = "replace" | "merge";
 
 /**
+ * Migrates a v1 backup payload (per-profile catalog) into the v2 shape
+ * (global catalog). Picks the first profile by createdAt as the base,
+ * drops other profiles' catalog rows, and remaps references in plan /
+ * recipes / forbidden / scheduled / drafts by group key + food name.
+ */
+function migrateV1BackupToV2(b: FullBackup): FullBackup {
+  if (b.version !== 1) return b;
+  const norm = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
+
+  if (b.profiles.length === 0) {
+    return { ...b, version: FULL_BACKUP_VERSION, freeUseFoods: [] };
+  }
+  const baseProfileId = b.profiles
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt)[0]!.id;
+
+  const baseGroups = b.groups.filter((g) => g.profileId === baseProfileId);
+  const baseFoods = b.foods.filter((f) => f.profileId === baseProfileId);
+  const baseUnits = b.unitTypes.filter((u) => u.profileId === baseProfileId);
+  const baseQtys = b.quantityOptions.filter(
+    (q) => q.profileId === baseProfileId,
+  );
+
+  const groupByIdAll = new Map(b.groups.map((g) => [g.id, g]));
+  const baseGroupByKey = new Map(baseGroups.map((g) => [g.key, g]));
+  const baseFoodByGroupAndName = new Map<string, Food>();
+  for (const f of baseFoods) {
+    const g = groupByIdAll.get(f.groupId);
+    if (!g) continue;
+    baseFoodByGroupAndName.set(`${g.key}::${norm(f.name)}`, f);
+  }
+  const baseFoodByName = new Map(baseFoods.map((f) => [norm(f.name), f]));
+
+  const groupIdMap = new Map<string, string>();
+  for (const g of b.groups) {
+    if (g.profileId === baseProfileId) groupIdMap.set(g.id, g.id);
+    else {
+      const base = baseGroupByKey.get(g.key);
+      if (base) groupIdMap.set(g.id, base.id);
+    }
+  }
+  const foodIdMap = new Map<string, string>();
+  for (const f of b.foods) {
+    if (f.profileId === baseProfileId) {
+      foodIdMap.set(f.id, f.id);
+      continue;
+    }
+    const legacyGroup = groupByIdAll.get(f.groupId);
+    const byGroup = legacyGroup
+      ? baseFoodByGroupAndName.get(`${legacyGroup.key}::${norm(f.name)}`)
+      : undefined;
+    const match = byGroup ?? baseFoodByName.get(norm(f.name));
+    if (match) foodIdMap.set(f.id, match.id);
+  }
+
+  const remapItems = <T extends { items: { foodId: string; amount: number }[] }>(
+    rows: T[],
+  ): T[] =>
+    rows.map((r) => ({
+      ...r,
+      items: r.items
+        .map((it) => {
+          const next = foodIdMap.get(it.foodId);
+          return next ? { foodId: next, amount: it.amount } : null;
+        })
+        .filter((x): x is { foodId: string; amount: number } => x !== null),
+    }));
+
+  const planCells = b.planCells
+    .map((c) => ({ ...c, groupId: groupIdMap.get(c.groupId) ?? "" }))
+    .filter((c) => c.groupId !== "");
+
+  const forbiddenItems = (b.forbiddenItems ?? []).flatMap<ForbiddenItem>((it) => {
+    if (!it.ref) return [it];
+    if (it.kind === "group") {
+      const next = groupIdMap.get(it.ref);
+      return next ? [{ ...it, ref: next }] : [];
+    }
+    if (it.kind === "food") {
+      const next = foodIdMap.get(it.ref);
+      return next ? [{ ...it, ref: next }] : [];
+    }
+    return [it];
+  });
+
+  const stripPid = <T extends object>(rows: T[]): T[] =>
+    rows.map((r) => {
+      const copy = { ...r } as T & { profileId?: string };
+      delete copy.profileId;
+      return copy as T;
+    });
+
+  return {
+    ...b,
+    version: FULL_BACKUP_VERSION,
+    groups: stripPid(baseGroups) as FoodGroup[],
+    foods: stripPid(baseFoods) as Food[],
+    unitTypes: stripPid(baseUnits) as UnitType[],
+    quantityOptions: stripPid(baseQtys) as QuantityOption[],
+    planCells,
+    recipes: remapItems(b.recipes),
+    scheduledRecipes: remapItems(b.scheduledRecipes ?? []),
+    recipeDrafts: remapItems(b.recipeDrafts ?? []),
+    forbiddenItems,
+    freeUseFoods: [],
+  };
+}
+
+/**
  * Restores a full backup.
- *   - "replace" wipes the eight user-editable tables across ALL profiles
- *     before bulk-inserting the backup. Device-local snapshots are NOT
- *     touched.
+ *   - "replace" wipes the user-editable tables before bulk-inserting the
+ *     backup. Device-local snapshots are NOT touched.
  *   - "merge" performs an upsert by id (last-wins) and adds new rows.
+ *     Per-profile tables of profiles NOT present in the backup are kept.
  */
 export async function importAllData(
   data: FullBackup,
   opts: { mode: ImportMode } = { mode: "replace" },
 ): Promise<BackupCounts> {
   assertFullBackup(data);
+  const migrated = migrateV1BackupToV2(data);
   const db = getDB();
   await db.transaction(
     "rw",
@@ -925,9 +1123,15 @@ export async function importAllData(
       db.unitTypes,
       db.quantityOptions,
       db.forbiddenItems,
+      db.scheduledRecipes,
+      db.recipeDrafts,
+      db.freeUseFoods,
     ],
     async () => {
-      const forbidden = data.forbiddenItems ?? [];
+      const forbidden = migrated.forbiddenItems ?? [];
+      const scheduled = migrated.scheduledRecipes ?? [];
+      const drafts = migrated.recipeDrafts ?? [];
+      const free = migrated.freeUseFoods ?? [];
       if (opts.mode === "replace") {
         await Promise.all([
           db.profiles.clear(),
@@ -939,30 +1143,43 @@ export async function importAllData(
           db.unitTypes.clear(),
           db.quantityOptions.clear(),
           db.forbiddenItems.clear(),
+          db.scheduledRecipes.clear(),
+          db.recipeDrafts.clear(),
+          db.freeUseFoods.clear(),
         ]);
-        await db.profiles.bulkAdd(data.profiles);
-        await db.groups.bulkAdd(data.groups);
-        await db.foods.bulkAdd(data.foods);
-        await db.meals.bulkAdd(data.meals);
-        await db.planCells.bulkAdd(data.planCells);
-        await db.recipes.bulkAdd(data.recipes);
-        await db.unitTypes.bulkAdd(data.unitTypes);
-        await db.quantityOptions.bulkAdd(data.quantityOptions);
+        await db.profiles.bulkAdd(migrated.profiles);
+        await db.groups.bulkAdd(migrated.groups as FoodGroup[]);
+        await db.foods.bulkAdd(migrated.foods as Food[]);
+        await db.meals.bulkAdd(migrated.meals);
+        await db.planCells.bulkAdd(migrated.planCells);
+        await db.recipes.bulkAdd(migrated.recipes);
+        await db.unitTypes.bulkAdd(migrated.unitTypes as UnitType[]);
+        await db.quantityOptions.bulkAdd(
+          migrated.quantityOptions as QuantityOption[],
+        );
         if (forbidden.length > 0) await db.forbiddenItems.bulkAdd(forbidden);
+        if (scheduled.length > 0) await db.scheduledRecipes.bulkAdd(scheduled);
+        if (drafts.length > 0) await db.recipeDrafts.bulkAdd(drafts);
+        if (free.length > 0) await db.freeUseFoods.bulkAdd(free);
       } else {
-        await db.profiles.bulkPut(data.profiles);
-        await db.groups.bulkPut(data.groups);
-        await db.foods.bulkPut(data.foods);
-        await db.meals.bulkPut(data.meals);
-        await db.planCells.bulkPut(data.planCells);
-        await db.recipes.bulkPut(data.recipes);
-        await db.unitTypes.bulkPut(data.unitTypes);
-        await db.quantityOptions.bulkPut(data.quantityOptions);
+        await db.profiles.bulkPut(migrated.profiles);
+        await db.groups.bulkPut(migrated.groups as FoodGroup[]);
+        await db.foods.bulkPut(migrated.foods as Food[]);
+        await db.meals.bulkPut(migrated.meals);
+        await db.planCells.bulkPut(migrated.planCells);
+        await db.recipes.bulkPut(migrated.recipes);
+        await db.unitTypes.bulkPut(migrated.unitTypes as UnitType[]);
+        await db.quantityOptions.bulkPut(
+          migrated.quantityOptions as QuantityOption[],
+        );
         if (forbidden.length > 0) await db.forbiddenItems.bulkPut(forbidden);
+        if (scheduled.length > 0) await db.scheduledRecipes.bulkPut(scheduled);
+        if (drafts.length > 0) await db.recipeDrafts.bulkPut(drafts);
+        if (free.length > 0) await db.freeUseFoods.bulkPut(free);
       }
     },
   );
-  return backupCounts(data);
+  return backupCounts(migrated);
 }
 
 // ─── Scheduled recipes (calendarised) ─────────────────────────────────────

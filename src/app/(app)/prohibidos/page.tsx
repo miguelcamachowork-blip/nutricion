@@ -31,8 +31,8 @@ const EMPTY: never[] = [];
 export default function ProhibidosPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
   const groups =
-    useLiveQuery(() => listGroups(profileId), [profileId]) ?? EMPTY;
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? EMPTY;
+    useLiveQuery(() => listGroups(), []) ?? EMPTY;
+  const foods = useLiveQuery(() => listFoods(), []) ?? EMPTY;
   const forbidden =
     useLiveQuery(() => listForbidden(profileId), [profileId]) ?? EMPTY;
 

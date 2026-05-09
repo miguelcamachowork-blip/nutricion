@@ -1,12 +1,12 @@
-import type { FoodGroup, GroupKey, ID, Meal, QuantityOption, UnitType } from "@/lib/types";
+import type { ID, Meal } from "@/lib/types";
 
 export interface SeedGroupDef {
-  key: GroupKey;
+  key: string;
   label: string;
   removable: boolean;
 }
 
-/** Canonical group order used when creating a new profile. */
+/** Canonical group order used when seeding the global catalog. */
 export const SEED_GROUPS: SeedGroupDef[] = [
   { key: "VERDURAS", label: "Verduras", removable: false },
   { key: "FRUTAS", label: "Frutas", removable: false },
@@ -36,11 +36,26 @@ export const SEED_MEALS: SeedMealDef[] = [
   { key: "CENA", label: "Cena", time: "20:30" },
 ];
 
-/** Default measurement units when creating a new profile. */
+/** Default measurement units (global). */
 export const SEED_UNITS: string[] = ["Piezas", "Gramos", "Tazas"];
 
-/** Default selectable quantity values (quarter steps). */
+/** Default selectable quantity values, in quarter steps (global). */
 export const SEED_QUANTITIES: number[] = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
+
+/** Default free-use foods seeded once globally. */
+export const SEED_FREE_USE_FOODS: string[] = [
+  "Agua",
+  "Hielo",
+  "Stevia",
+  "Grenetina sin sabor",
+  "Limón",
+  "Sal",
+  "Pimienta",
+  "Especias",
+  "Vinagre",
+  "Café sin azúcar",
+  "Té sin azúcar",
+];
 
 export type SeedUnit = "Piezas" | "Gramos" | "Tazas";
 
@@ -134,22 +149,9 @@ export const SEED_FOODS: Record<
   OTROS_3: [],
 };
 
-/** Build initial groups + meals + units + quantities for a new profile. */
-export function makeSeedFor(profileId: ID): {
-  groups: FoodGroup[];
-  meals: Meal[];
-  units: UnitType[];
-  quantities: QuantityOption[];
-} {
-  const groups: FoodGroup[] = SEED_GROUPS.map((g, i) => ({
-    id: `${profileId}:g:${g.key}`,
-    profileId,
-    key: g.key,
-    label: g.label,
-    order: i,
-    removable: g.removable,
-  }));
-  const meals: Meal[] = SEED_MEALS.map((m, i) => ({
+/** Build the per-profile meals seed (the only catalog that remains scoped). */
+export function makeMealsSeedFor(profileId: ID): Meal[] {
+  return SEED_MEALS.map((m, i) => ({
     id: `${profileId}:m:${m.key}`,
     profileId,
     key: m.key,
@@ -157,17 +159,4 @@ export function makeSeedFor(profileId: ID): {
     order: i,
     time: m.time,
   }));
-  const units: UnitType[] = SEED_UNITS.map((label, i) => ({
-    id: `${profileId}:u:${i}`,
-    profileId,
-    label,
-    order: i,
-  }));
-  const quantities: QuantityOption[] = SEED_QUANTITIES.map((value, i) => ({
-    id: `${profileId}:q:${i}`,
-    profileId,
-    value,
-    order: i,
-  }));
-  return { groups, meals, units, quantities };
 }

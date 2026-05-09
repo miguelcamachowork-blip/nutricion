@@ -32,7 +32,6 @@ describe("portions", () => {
 describe("amountToPortions", () => {
   const food: Food = {
     id: "f1",
-    profileId: "p",
     groupId: "g",
     name: "Tortilla",
     unitId: "u",
@@ -59,7 +58,6 @@ describe("recipePortionsByGroup", () => {
       "f_tort",
       {
         id: "f_tort",
-        profileId: "p",
         groupId: G_CER,
         name: "Tortilla",
         unitId: "u",
@@ -70,7 +68,6 @@ describe("recipePortionsByGroup", () => {
       "f_man",
       {
         id: "f_man",
-        profileId: "p",
         groupId: G_FRU,
         name: "Manzana",
         unitId: "u",

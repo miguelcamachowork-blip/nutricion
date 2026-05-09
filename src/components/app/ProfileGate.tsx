@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   createProfile,
   deleteProfile,
+  ensureGlobalCatalog,
   listProfiles,
   renameProfile,
 } from "@/lib/db/repos";
@@ -30,6 +31,12 @@ export function ProfileGate({ children }: { children: React.ReactNode }) {
 
   // Daily rolling auto-backup (kept inside IndexedDB).
   useAutoBackup();
+
+  // Make sure the global catalog (groups/foods/units/quantities/free-use)
+  // is seeded even before the first profile is created.
+  useEffect(() => {
+    void ensureGlobalCatalog();
+  }, []);
 
   useEffect(() => {
     if (

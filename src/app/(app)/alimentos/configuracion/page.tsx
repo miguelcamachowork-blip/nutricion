@@ -19,9 +19,9 @@ import { formatPortion } from "@/lib/balance";
 
 export default function ConfiguracionPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? [];
+  const units = useLiveQuery(() => listUnits(), []) ?? [];
   const quantities =
-    useLiveQuery(() => listQuantities(profileId), [profileId]) ?? [];
+    useLiveQuery(() => listQuantities(), []) ?? [];
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6 sm:py-6">
@@ -111,7 +111,7 @@ function UnitsCard({
             onChange={(e) => setNewLabel(e.target.value)}
             onKeyDown={async (e) => {
               if (e.key === "Enter" && newLabel.trim()) {
-                await addUnit(profileId, newLabel.trim());
+                await addUnit(newLabel.trim());
                 setNewLabel("");
               }
             }}
@@ -119,7 +119,7 @@ function UnitsCard({
           <Button
             onClick={async () => {
               if (!newLabel.trim()) return;
-              await addUnit(profileId, newLabel.trim());
+              await addUnit(newLabel.trim());
               setNewLabel("");
             }}
           >
@@ -207,7 +207,7 @@ function QuantitiesCard({
   async function handleAdd() {
     const raw = Number(newValue.replace(",", "."));
     if (!Number.isFinite(raw) || raw <= 0) return;
-    await addQuantity(profileId, raw);
+    await addQuantity(raw);
     setNewValue("");
   }
 }

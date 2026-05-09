@@ -12,6 +12,7 @@ export interface AISuggestionResult {
   preparation?: string[];
   notes?: string;
   unresolved: ReturnType<typeof applyAIRecipe>["unresolved"];
+  freeUseNames: string[];
   provider: "gemini" | "groq";
 }
 
@@ -50,7 +51,7 @@ export function useAIRecipe() {
       if (!("recipe" in data)) throw new Error("Respuesta inválida");
 
       const groupNameById = new Map(args.groups.map((g) => [g.id, g.label]));
-      const { items, unresolved } = applyAIRecipe(
+      const { items, unresolved, freeUseNames } = applyAIRecipe(
         data.recipe,
         args.foods,
         groupNameById,
@@ -61,6 +62,7 @@ export function useAIRecipe() {
         preparation: data.recipe.preparation,
         notes: data.recipe.notes,
         unresolved,
+        freeUseNames,
         provider: data.provider,
       };
     } catch (err) {

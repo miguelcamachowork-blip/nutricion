@@ -6,6 +6,10 @@ import { z } from "zod";
  *    sent in the prompt (the server later resolves them to `foodId`).
  *  - `amount` is in the same unit the food's `quantity` is defined with;
  *    the server converts to portions.
+ *  - `freeUse: true` marks an item that is not part of the catalog
+ *    (water, ice, spices...) — `amount` may be 0 and the resolver does
+ *    NOT try to map it to a real `Food`. Such items are surfaced only as
+ *    notes in `preparation`.
  *  - `title` and `preparation` are optional human-friendly metadata.
  *
  * Anything not validated by this schema is rejected and the caller can
@@ -14,7 +18,8 @@ import { z } from "zod";
 export const aiRecipeItemSchema = z.object({
   groupName: z.string().min(1),
   foodName: z.string().min(1),
-  amount: z.number().positive().finite(),
+  amount: z.number().nonnegative().finite(),
+  freeUse: z.boolean().optional(),
 });
 
 export const aiRecipeSchema = z.object({

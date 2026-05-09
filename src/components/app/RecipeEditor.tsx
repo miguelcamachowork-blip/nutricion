@@ -10,6 +10,7 @@ import {
   getScheduledRecipe,
   listFoods,
   listForbidden,
+  listFreeUseFoods,
   listGroups,
   listMeals,
   listQuantities,
@@ -31,6 +32,7 @@ import {
   formatPortion,
   recipePortionsByGroup,
 } from "@/lib/balance";
+import { compareNames, normalizeText } from "@/lib/utils";
 import {
   ArrowLeft,
   AlertTriangle,
@@ -38,11 +40,13 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import type {
   Food,
   FoodGroup,
   ForbiddenItem,
+  FreeUseFood,
   RecipeItem,
   UnitType,
 } from "@/lib/types";
@@ -85,13 +89,15 @@ export function RecipeEditor({
   const { mealId } = target;
 
   const mealsRaw = useLiveQuery(() => listMeals(profileId), [profileId]);
-  const groups = useLiveQuery(() => listGroups(profileId), [profileId]) ?? [];
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? [];
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? [];
+  const groups = useLiveQuery(() => listGroups(), []) ?? [];
+  const foods = useLiveQuery(() => listFoods(), []) ?? [];
+  const units = useLiveQuery(() => listUnits(), []) ?? [];
   const quantities =
-    useLiveQuery(() => listQuantities(profileId), [profileId]) ?? [];
+    useLiveQuery(() => listQuantities(), []) ?? [];
   const forbidden =
     useLiveQuery(() => listForbidden(profileId), [profileId]) ?? [];
+  const freeUseFoods =
+    useLiveQuery(() => listFreeUseFoods(), []) ?? [];
 
   // Plan source depends on target kind. For scheduled recipes we look up the
   // plan that was in effect on that date (so the editor reflects what the
@@ -188,6 +194,7 @@ export function RecipeEditor({
       quantities={quantities}
       plan={plan!}
       forbidden={forbidden}
+      freeUseFoods={freeUseFoods}
       initialItems={existing ? existing.items : []}
       initialTitle={existing?.title}
       initialPreparation={existing?.preparation}
@@ -216,6 +223,7 @@ function EditorBody({
   quantities,
   plan,
   forbidden,
+  freeUseFoods,
   initialItems,
   initialTitle,
   initialPreparation,
@@ -234,6 +242,7 @@ function EditorBody({
   quantities: { id: string; value: number }[];
   plan: { mealId: string; groupId: string; portions: number }[];
   forbidden: ForbiddenItem[];
+  freeUseFoods: FreeUseFood[];
   initialItems: RecipeItem[];
   initialTitle?: string;
   initialPreparation?: string[];
@@ -347,7 +356,10 @@ function EditorBody({
   // ─── AI suggestion ────────────────────────────────────────────────────
   const ai = useAIRecipe();
   const [aiPreview, setAiPreview] = useState<AISuggestionResult | null>(null);
-  const handleSuggestAI = async () => {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [forcedFoodIds, setForcedFoodIds] = useState<string[]>([]);
+
+  const runAISuggest = async () => {
     try {
       const context = buildMealContext({
         meal: { id: mealId, label: mealLabel, time: mealTime },
@@ -357,6 +369,8 @@ function EditorBody({
         plan,
         forbidden,
         date: target.kind === "scheduled" ? target.date : undefined,
+        forcedFoodIds,
+        freeUseFoods,
       });
       if (context.groupTargets.length === 0) {
         toast.error("No hay porciones planeadas para este horario");
@@ -364,19 +378,29 @@ function EditorBody({
       }
       const result = await ai.suggest({ context, foods, groups });
       setAiPreview(result);
+      setAiOpen(false);
     } catch (err) {
       toast.error("No se pudo generar la receta", {
         description: (err as Error).message,
       });
     }
   };
+
   const applyAIPreview = () => {
     if (!aiPreview) return;
     setItems(aiPreview.items);
     if (aiPreview.title) setTitle(aiPreview.title);
-    if (aiPreview.preparation && aiPreview.preparation.length > 0) {
-      setPreparation(aiPreview.preparation);
-    }
+    // Append free-use foods as a final note inside `preparation` so the
+    // user sees them but they don't count toward portions.
+    const basePrep = aiPreview.preparation ?? [];
+    const finalPrep =
+      aiPreview.freeUseNames.length > 0
+        ? [
+            ...basePrep,
+            `Libre uso: ${aiPreview.freeUseNames.join(", ")}.`,
+          ]
+        : basePrep;
+    if (finalPrep.length > 0) setPreparation(finalPrep);
     setAiPreview(null);
     toast.success("Sugerencia aplicada", {
       description: "Se guardó como borrador. Revísala antes de guardar.",
@@ -407,7 +431,7 @@ function EditorBody({
           </div>
           <Button
             variant="outline"
-            onClick={() => void handleSuggestAI()}
+            onClick={() => setAiOpen(true)}
             disabled={ai.loading}
             title="Sugerir receta con IA"
           >
@@ -548,6 +572,22 @@ function EditorBody({
         </DialogContent>
       </Dialog>
 
+      <AIPromptDialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onSubmit={() => void runAISuggest()}
+        loading={ai.loading}
+        groups={groups}
+        foods={foods}
+        plan={plan}
+        mealId={mealId}
+        forbiddenFoodIds={forbiddenFoodIds}
+        forbiddenGroupIds={forbiddenGroupIds}
+        forcedFoodIds={forcedFoodIds}
+        setForcedFoodIds={setForcedFoodIds}
+        freeUseFoods={freeUseFoods}
+      />
+
       <AISuggestionDialog
         preview={aiPreview}
         onClose={() => setAiPreview(null)}
@@ -559,6 +599,174 @@ function EditorBody({
         mealId={mealId}
       />
     </div>
+  );
+}
+
+function AIPromptDialog({
+  open,
+  onClose,
+  onSubmit,
+  loading,
+  groups,
+  foods,
+  plan,
+  mealId,
+  forbiddenFoodIds,
+  forbiddenGroupIds,
+  forcedFoodIds,
+  setForcedFoodIds,
+  freeUseFoods,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: () => void;
+  loading: boolean;
+  groups: FoodGroup[];
+  foods: Food[];
+  plan: { mealId: string; groupId: string; portions: number }[];
+  mealId: string;
+  forbiddenFoodIds: Set<string>;
+  forbiddenGroupIds: Set<string>;
+  forcedFoodIds: string[];
+  setForcedFoodIds: (ids: string[]) => void;
+  freeUseFoods: FreeUseFood[];
+}) {
+  const [search, setSearch] = useState("");
+
+  // Eligible = food's group is planned for this meal (>0), not forbidden,
+  // food not forbidden. We only allow forcing foods the AI could actually
+  // pick — anything else would be silently dropped server-side.
+  const plannedGroupIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of plan) if (c.mealId === mealId && c.portions > 0) s.add(c.groupId);
+    return s;
+  }, [plan, mealId]);
+
+  const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
+
+  const eligibleFoods = useMemo(() => {
+    return foods
+      .filter(
+        (f) =>
+          plannedGroupIds.has(f.groupId) &&
+          !forbiddenGroupIds.has(f.groupId) &&
+          !forbiddenFoodIds.has(f.id),
+      )
+      .sort((a, b) => compareNames(a.name, b.name));
+  }, [foods, plannedGroupIds, forbiddenGroupIds, forbiddenFoodIds]);
+
+  const forcedSet = useMemo(() => new Set(forcedFoodIds), [forcedFoodIds]);
+
+  const filtered = useMemo(() => {
+    const q = normalizeText(search.trim());
+    if (!q) return eligibleFoods.filter((f) => !forcedSet.has(f.id)).slice(0, 25);
+    return eligibleFoods
+      .filter((f) => !forcedSet.has(f.id) && normalizeText(f.name).includes(q))
+      .slice(0, 25);
+  }, [eligibleFoods, search, forcedSet]);
+
+  const forcedFoodObjs = forcedFoodIds
+    .map((id) => foods.find((f) => f.id === id))
+    .filter((f): f is Food => Boolean(f));
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent title="Sugerir receta con IA">
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--muted-foreground)]">
+            Opcionalmente forza la inclusión de alimentos específicos. La IA
+            considerará todo el catálogo del plan, evitará prohibidos, y
+            podrá enriquecer con alimentos de libre uso.
+          </p>
+
+          <div>
+            <div className="mb-1 text-xs font-medium uppercase text-[var(--muted-foreground)]">
+              Alimentos forzados ({forcedFoodObjs.length})
+            </div>
+            {forcedFoodObjs.length === 0 ? (
+              <div className="text-sm text-[var(--muted-foreground)]">
+                Ninguno. La IA elegirá libremente.
+              </div>
+            ) : (
+              <ul className="flex flex-wrap gap-1.5">
+                {forcedFoodObjs.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-0.5 pl-2.5 pr-1 text-xs"
+                  >
+                    <span className="text-[var(--muted-foreground)]">
+                      {groupById.get(f.groupId)?.label ?? "?"} ·
+                    </span>
+                    <span>{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForcedFoodIds(
+                          forcedFoodIds.filter((id) => id !== f.id),
+                        )
+                      }
+                      className="rounded-full p-0.5 hover:bg-[var(--color-muted)]"
+                      aria-label={`Quitar ${f.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <div className="mb-1 text-xs font-medium uppercase text-[var(--muted-foreground)]">
+              Añadir alimento
+            </div>
+            <Input
+              placeholder="Buscar (ej. broc, arroz, pollo)…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {filtered.length > 0 && (
+              <ul className="mt-2 max-h-56 overflow-y-auto rounded-md border border-[var(--color-border)]">
+                {filtered.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-muted)]"
+                      onClick={() => {
+                        setForcedFoodIds([...forcedFoodIds, f.id]);
+                        setSearch("");
+                      }}
+                    >
+                      <span>{f.name}</span>
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        {groupById.get(f.groupId)?.label ?? ""}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {freeUseFoods.length > 0 && (
+            <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+              <span className="font-medium">Libre uso disponibles:</span>{" "}
+              {freeUseFoods.map((f) => f.name).join(", ")}.
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={loading}>
+              Cancelar
+            </Button>
+            <Button onClick={onSubmit} disabled={loading}>
+              <Sparkles className="h-4 w-4" />
+              {loading ? "Pensando…" : "Generar"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -749,7 +957,10 @@ function GroupEditor({
     foodName: string;
   } | null>(null);
 
-  const selectableFoods = foods.filter((f) => !forbiddenFoodIds.has(f.id));
+  const selectableFoods = foods
+    .filter((f) => !forbiddenFoodIds.has(f.id))
+    .slice()
+    .sort((a, b) => compareNames(a.name, b.name));
   const selectedFoodId = foodId || selectableFoods[0]?.id || "";
   const food = foods.find((f) => f.id === selectedFoodId);
   const unit = food && units.find((u) => u.id === food.unitId);

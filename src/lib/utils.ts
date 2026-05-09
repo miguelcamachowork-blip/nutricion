@@ -17,3 +17,13 @@ export function todayISO(d: Date = new Date()): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/** Lowercase + strip diacritics for accent-insensitive matching. */
+export function normalizeText(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
+/** Locale-aware, accent-insensitive comparator for sorting strings. */
+export function compareNames(a: string, b: string): number {
+  return normalizeText(a).localeCompare(normalizeText(b), "es");
+}

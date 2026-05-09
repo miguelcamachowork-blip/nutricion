@@ -34,9 +34,9 @@ const EMPTY: never[] = [];
 export default function PlanDelDiaPage() {
   const profileId = useActiveProfileStore((s) => s.activeProfileId)!;
   const meals = useLiveQuery(() => listMeals(profileId), [profileId]) ?? EMPTY;
-  const groups = useLiveQuery(() => listGroups(profileId), [profileId]) ?? EMPTY;
-  const foods = useLiveQuery(() => listFoods(profileId), [profileId]) ?? EMPTY;
-  const units = useLiveQuery(() => listUnits(profileId), [profileId]) ?? EMPTY;
+  const groups = useLiveQuery(() => listGroups(), []) ?? EMPTY;
+  const foods = useLiveQuery(() => listFoods(), []) ?? EMPTY;
+  const units = useLiveQuery(() => listUnits(), []) ?? EMPTY;
   const plan = useLiveQuery(() => listPlan(profileId), [profileId]) ?? EMPTY;
   const recipes =
     useLiveQuery(() => listRecipes(profileId), [profileId]) ?? EMPTY;

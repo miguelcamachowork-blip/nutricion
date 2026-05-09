@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
+import { PWAInstall } from "./PWAInstall";
 
 const NAV = [
   { href: "/dia", label: "Plan del día", icon: ChefHat },
@@ -262,6 +263,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
+
+      <PWAInstall />
     </div>
   );
 }

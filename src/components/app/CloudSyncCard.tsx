@@ -7,6 +7,8 @@ import {
   Cloud,
   CloudDownload,
   CloudUpload,
+  Eye,
+  EyeOff,
   KeyRound,
   Plus,
   Settings2,
@@ -438,6 +440,7 @@ function ConfigureDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const [reveal, setReveal] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -446,6 +449,7 @@ function ConfigureDialog({
       setMemberName(initial?.memberName ?? "");
       setError(null);
       setHint(null);
+      setReveal(false);
     }
   }, [open, initial]);
 
@@ -507,14 +511,26 @@ function ConfigureDialog({
         <div className="space-y-3 text-sm">
           <div>
             <Label htmlFor="sync-code">Código familiar</Label>
-            <Input
-              id="sync-code"
-              type="password"
-              autoFocus
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="p. ej. familia-mcz-2026"
-            />
+            <div className="relative">
+              <Input
+                id="sync-code"
+                type={reveal ? "text" : "password"}
+                autoFocus
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="p. ej. familia-mcz-2026"
+                className="pr-9"
+              />
+              <button
+                type="button"
+                aria-label={reveal ? "Ocultar código" : "Mostrar código"}
+                title={reveal ? "Ocultar código" : "Mostrar código"}
+                onClick={() => setReveal((r) => !r)}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
+              >
+                {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
               Inventa una frase secreta y compártela con los demás miembros por
               un canal seguro (WhatsApp, llamada). Debe ser idéntica en todos

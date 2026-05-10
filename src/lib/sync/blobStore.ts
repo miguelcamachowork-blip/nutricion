@@ -43,11 +43,13 @@ export async function readManifest(
     return await fetchJson<RemoteManifest>(meta.url);
   } catch (err) {
     // `head` throws BlobNotFoundError when the object doesn't exist.
-    const code = (err as { code?: string }).code;
-    if (code === "BlobNotFoundError" || code === "not_found") return null;
+    const e = err as { code?: string; name?: string; message?: string };
     if (
-      err instanceof Error &&
-      err.message.toLowerCase().includes("not found")
+      e.code === "BlobNotFoundError" ||
+      e.code === "not_found" ||
+      e.name === "BlobNotFoundError" ||
+      (e.message && e.message.toLowerCase().includes("not exist")) ||
+      (e.message && e.message.toLowerCase().includes("not found"))
     ) {
       return null;
     }

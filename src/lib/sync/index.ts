@@ -202,3 +202,82 @@ export async function pullProfile(
   });
   return { manifest: data.manifest, counts };
 }
+
+// ─── Join codes ────────────────────────────────────────────────────────────
+
+import { decodeJoinCode, encodeJoinCode, type JoinPayload } from "./joinCode";
+import { listProfiles } from "@/lib/db/repos";
+import { useActiveProfileStore } from "@/hooks/useActiveProfile";
+
+/**
+ * Builds the shareable join code for a configured profile. The receiver pastes
+ * it on their device to materialise the profile from the cloud.
+ */
+export async function getJoinCode(profileId: string): Promise<string> {
+  const cfg = requireConfig(profileId);
+  const profiles = await listProfiles();
+  const p = profiles.find((x) => x.id === profileId);
+  if (!p) throw new SyncError("not-found", "Perfil no encontrado.");
+  return encodeJoinCode({ profileId, code: cfg.code, name: p.name });
+}
+
+export interface ImportFromCloudResult {
+  profileId: string;
+  profileName: string;
+  manifest: RemoteManifest;
+  counts: ApplyCounts;
+}
+
+/**
+ * Adds a profile to this device from a join code: validates the code against
+ * the cloud, downloads the latest snapshot, materialises everything locally
+ * and saves the sync configuration.
+ */
+export async function importProfileFromCloud(
+  joinCode: string,
+  memberName?: string,
+): Promise<ImportFromCloudResult> {
+  let payload: JoinPayload;
+  try {
+    payload = decodeJoinCode(joinCode);
+  } catch (err) {
+    throw new SyncError("unknown", (err as Error).message);
+  }
+  // Save config first so pullProfile() can read it.
+  setProfileSyncConfig(payload.profileId, {
+    code: payload.code,
+    memberName: memberName?.trim() || undefined,
+  });
+  try {
+    const url = `/api/sync/${encodeURIComponent(payload.profileId)}/latest?code=${encodeURIComponent(payload.code)}`;
+    const data = await request<{
+      manifest: RemoteManifest;
+      snapshot: ProfileSnapshot;
+    }>(url);
+    const counts = await applyProfileSnapshot(data.snapshot, { mode: "merge" });
+    setProfileSyncConfig(payload.profileId, {
+      lastSyncedVersion: data.manifest.version,
+      lastSeenRemoteVersion: data.manifest.version,
+      lastSyncedAt: data.manifest.publishedAt,
+    });
+    // Make the freshly imported profile active for convenience.
+    try {
+      useActiveProfileStore.getState().setActive(payload.profileId);
+    } catch {
+      // Store may not be hydrated in tests; ignore.
+    }
+    return {
+      profileId: payload.profileId,
+      profileName: payload.name,
+      manifest: data.manifest,
+      counts,
+    };
+  } catch (err) {
+    // Rollback the half-saved config if the download failed.
+    if (err instanceof SyncError && err.kind !== "conflict") {
+      // Keep config on conflict; everything else is a clean failure.
+    }
+    throw err;
+  }
+}
+

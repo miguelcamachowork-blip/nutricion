@@ -8,7 +8,9 @@ import {
   CloudDownload,
   CloudUpload,
   KeyRound,
+  Plus,
   Settings2,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui/primitives";
@@ -22,6 +24,8 @@ import {
 } from "@/lib/sync/config";
 import {
   checkRemoteVersion,
+  getJoinCode,
+  importProfileFromCloud,
   probeCode,
   publishProfile,
   pullProfile,
@@ -40,6 +44,8 @@ function useConfigTick() {
 
 export function CloudSyncCard() {
   const profiles = useLiveQuery(() => listProfiles(), []) ?? [];
+  const [tick, bump] = useConfigTick();
+  const [importing, setImporting] = useState(false);
   return (
     <Card variant="elevated" className="p-4 sm:p-5">
       <div className="flex items-center gap-2 font-semibold">
@@ -58,14 +64,32 @@ export function CloudSyncCard() {
       ) : (
         <ul className="mt-3 space-y-2">
           {profiles.map((p) => (
-            <CloudSyncRow key={p.id} profile={p} />
+            <CloudSyncRow key={`${p.id}:${tick}`} profile={p} />
           ))}
         </ul>
       )}
-      <p className="mt-3 text-[11px] text-[var(--muted-foreground)]">
-        El código familiar se guarda solo en este dispositivo. Si lo olvidas,
-        no podrás recuperarlo desde la nube — pídeselo a otro miembro.
-      </p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] text-[var(--muted-foreground)]">
+          El código familiar se guarda solo en este dispositivo. Si lo olvidas,
+          príndeselo a otro miembro.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setImporting(true)}
+        >
+          <Plus className="h-4 w-4" />
+          Añadir perfil desde la nube
+        </Button>
+      </div>
+      <ImportFromCloudDialog
+        open={importing}
+        onClose={() => setImporting(false)}
+        onImported={() => {
+          bump();
+          setImporting(false);
+        }}
+      />
     </Card>
   );
 }
@@ -78,6 +102,7 @@ function CloudSyncRow({ profile }: { profile: Profile }) {
   const [confirmAction, setConfirmAction] = useState<null | "publish" | "pull">(null);
   const [pullMode, setPullMode] = useState<ApplyMode>("merge");
   const [remote, setRemote] = useState<RemoteManifest | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   // Refresh the remote manifest when the row mounts (and after each op).
   useEffect(() => {
@@ -205,6 +230,16 @@ function CloudSyncRow({ profile }: { profile: Profile }) {
             <Button
               size="icon"
               variant="ghost"
+              aria-label="Compartir invitación"
+              title="Compartir invitación"
+              onClick={() => setSharing(true)}
+              disabled={busy !== null}
+            >
+              <Share2 className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
               aria-label="Cambiar configuración"
               onClick={() => setConfiguring(true)}
             >
@@ -222,6 +257,12 @@ function CloudSyncRow({ profile }: { profile: Profile }) {
           </div>
         )}
       </div>
+
+      <ShareInviteDialog
+        open={sharing}
+        onClose={() => setSharing(false)}
+        profile={profile}
+      />
 
       <ConfigureDialog
         open={configuring}
@@ -581,4 +622,194 @@ function formatRelative(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+// ─── Share invite & Add-from-cloud dialogs ────────────────────────────────
+
+function ShareInviteDialog({
+  open,
+  onClose,
+  profile,
+}: {
+  open: boolean;
+  onClose: () => void;
+  profile: Profile;
+}) {
+  const [code, setCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCode(null);
+      setError(null);
+      setCopied(false);
+      return;
+    }
+    let cancelled = false;
+    getJoinCode(profile.id)
+      .then((c) => {
+        if (!cancelled) setCode(c);
+      })
+      .catch((err) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, profile.id]);
+
+  async function handleCopy() {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      toast.success("Código copiado al portapapeles");
+    } catch {
+      toast.error("No se pudo copiar. Selecciona y copia a mano.");
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title="Compartir invitación"
+        description={`Envía este código a otro miembro para que añada el perfil "${profile.name}" en su dispositivo.`}
+      >
+        {error && (
+          <p className="rounded-md bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger-soft-fg)]">
+            {error}
+          </p>
+        )}
+        {!code && !error && (
+          <p className="text-sm text-[var(--muted-foreground)]">Generando…</p>
+        )}
+        {code && (
+          <>
+            <textarea
+              readOnly
+              value={code}
+              onFocus={(e) => e.currentTarget.select()}
+              className="mt-2 h-28 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--card-2)] p-2 font-mono text-[11px] break-all"
+            />
+            <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+              Este código incluye el <b>código familiar</b> en claro. Compártelo
+              solo por canales seguros (WhatsApp con la familia, mensaje
+              directo). Cualquiera con este código podrá leer y modificar este
+              perfil en la nube.
+            </p>
+          </>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+          <Button onClick={handleCopy} disabled={!code}>
+            <Share2 className="h-4 w-4" />
+            {copied ? "Copiado" : "Copiar código"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ImportFromCloudDialog({
+  open,
+  onClose,
+  onImported,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [joinCode, setJoinCode] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setJoinCode("");
+      setMemberName("");
+      setError(null);
+    }
+  }, [open]);
+
+  async function handleImport() {
+    if (!joinCode.trim()) {
+      setError("Pega el código de invitación.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const tid = toast.loading("Descargando perfil…");
+    try {
+      const res = await importProfileFromCloud(joinCode, memberName);
+      toast.success(`Perfil "${res.profileName}" añadido (v${res.manifest.version})`, {
+        id: tid,
+        description: `${res.counts.recipes} recetas, ${res.counts.meals} comidas, ${res.counts.planCells} celdas de plan.`,
+      });
+      onImported();
+    } catch (err) {
+      handleSyncError(err, tid);
+      if (err instanceof SyncError) setError(err.message);
+      else setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title="Añadir perfil desde la nube"
+        description="Pega el código de invitación que te envió otro miembro de la familia."
+      >
+        <div className="space-y-3 text-sm">
+          <div>
+            <Label htmlFor="join-code">Código de invitación</Label>
+            <textarea
+              id="join-code"
+              autoFocus
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              placeholder="mcz1:..."
+              className="mt-1 h-24 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--card-2)] p-2 font-mono text-[11px] break-all"
+            />
+          </div>
+          <div>
+            <Label htmlFor="join-member">Tu nombre (opcional)</Label>
+            <Input
+              id="join-member"
+              value={memberName}
+              onChange={(e) => setMemberName(e.target.value)}
+              placeholder="p. ej. Juan"
+            />
+          </div>
+          {error && (
+            <p className="rounded-md bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger-soft-fg)]">
+              {error}
+            </p>
+          )}
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            Se descargará la última versión publicada y se creará el perfil en
+            este dispositivo. Si ya existía un perfil con el mismo identificador,
+            se combinará (lo de la nube gana en coincidencias).
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button onClick={handleImport} disabled={busy}>
+            <CloudDownload className="h-4 w-4" />
+            {busy ? "Descargando…" : "Añadir perfil"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }

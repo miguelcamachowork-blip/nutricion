@@ -171,12 +171,14 @@ export async function POST(request: Request, ctx: RouteCtx) {
 
   const nextVersion = (current?.version ?? 0) + 1;
   const publishedAt = new Date().toISOString();
-  const finalSnapshot: ProfileSnapshot = {
+  // The Zod schema validates structural shape; runtime values come from a
+  // trusted client snapshot, so we cast through unknown to satisfy TS.
+  const finalSnapshot = {
     ...snapshot,
     snapshotVersion: nextVersion,
     publishedAt,
     publishedBy: memberName?.trim() || undefined,
-  } as ProfileSnapshot;
+  } as unknown as ProfileSnapshot;
   const payload = JSON.stringify(finalSnapshot);
   const manifest: RemoteManifest = {
     version: nextVersion,

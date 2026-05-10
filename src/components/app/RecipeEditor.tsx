@@ -428,12 +428,15 @@ function EditorBody({
       // Construir contexto artificial para la IA usando solo los ingredientes actuales
       // Agrupar ingredientes por grupo
       const groupMap = new Map(groups.map((g) => [g.id, g]));
-      const itemsByGroup = new Map();
+      const itemsByGroup = new Map<
+        string,
+        Array<{ foodId: string; amount: number; food: Food }>
+      >();
       for (const it of items) {
         const f = foodById.get(it.foodId);
         if (!f) continue;
         if (!itemsByGroup.has(f.groupId)) itemsByGroup.set(f.groupId, []);
-        itemsByGroup.get(f.groupId).push({
+        itemsByGroup.get(f.groupId)!.push({
           ...it,
           food: f,
         });
@@ -457,7 +460,7 @@ function EditorBody({
             };
           }),
         };
-      }).filter(Boolean);
+      }).filter((g): g is NonNullable<typeof g> => g !== null);
       // Preparar contexto IA
       const context = {
         meal: { id: mealId, label: mealLabel, time: mealTime },

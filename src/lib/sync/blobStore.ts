@@ -5,7 +5,7 @@
 //   perfiles/<profileId>/manifest.json   ← lightweight metadata (RemoteManifest)
 //   perfiles/<profileId>/v<n>.json       ← snapshot payload (ProfileSnapshot)
 
-import { head, list, put } from "@vercel/blob";
+import { get, list, put } from "@vercel/blob";
 import type { ProfileSnapshot, RemoteManifest } from "@/lib/types";
 
 const TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
@@ -27,22 +27,11 @@ const manifestPath = (profileId: string) =>
 const snapshotPath = (profileId: string, version: number) =>
   `perfiles/${profileId}/v${version}.json`;
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Fallo al leer ${url}: ${res.status}`);
-  return (await res.json()) as T;
-}
-
-/** Returns the current manifest for a profile, or `null` if none exists. */
-export async function readManifest(
-  profileId: string,
-): Promise<RemoteManifest | null> {
-  const token = requireToken();
+async function readJson<T>(pathname: string, token: string): Promise<T | null> {
+  let result;
   try {
-    const meta = await head(manifestPath(profileId), { token });
-    return await fetchJson<RemoteManifest>(meta.url);
+    result = await get(pathname, { access: "private", useCache: false, token });
   } catch (err) {
-    // `head` throws BlobNotFoundError when the object doesn't exist.
     const e = err as { code?: string; name?: string; message?: string };
     if (
       e.code === "BlobNotFoundError" ||
@@ -55,6 +44,17 @@ export async function readManifest(
     }
     throw err;
   }
+  if (!result || result.statusCode !== 200) return null;
+  const text = await new Response(result.stream).text();
+  return JSON.parse(text) as T;
+}
+
+/** Returns the current manifest for a profile, or `null` if none exists. */
+export async function readManifest(
+  profileId: string,
+): Promise<RemoteManifest | null> {
+  const token = requireToken();
+  return readJson<RemoteManifest>(manifestPath(profileId), token);
 }
 
 /** Reads the snapshot payload for a given version. */
@@ -63,8 +63,14 @@ export async function readSnapshot(
   version: number,
 ): Promise<ProfileSnapshot> {
   const token = requireToken();
-  const meta = await head(snapshotPath(profileId, version), { token });
-  return await fetchJson<ProfileSnapshot>(meta.url);
+  const data = await readJson<ProfileSnapshot>(
+    snapshotPath(profileId, version),
+    token,
+  );
+  if (!data) {
+    throw new Error(`No existe la versión v${version} del perfil ${profileId}.`);
+  }
+  return data;
 }
 
 /** Writes both the snapshot payload and the manifest. */
@@ -79,12 +85,14 @@ export async function writeSnapshotAndManifest(
 
   // Upload snapshot first so the manifest never points to a missing file.
   await put(snapshotPath(profileId, manifest.version), snapshotBody, {
+    access: "private",
     addRandomSuffix: false,
     contentType: "application/json",
     allowOverwrite: true,
     token,
   } as Parameters<typeof put>[2]);
   await put(manifestPath(profileId), manifestBody, {
+    access: "private",
     addRandomSuffix: false,
     contentType: "application/json",
     allowOverwrite: true,

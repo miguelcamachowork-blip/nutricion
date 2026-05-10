@@ -38,10 +38,14 @@ export function encodeJoinCode(payload: JoinPayload): string {
 }
 
 export function decodeJoinCode(raw: string): JoinPayload {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith(PREFIX)) {
+  // Tolerate whitespace, line breaks and stray characters from copy/paste,
+  // including the prefix appearing somewhere in the middle of a message.
+  const cleaned = raw.replace(/\s+/g, "");
+  const idx = cleaned.indexOf(PREFIX);
+  if (idx < 0) {
     throw new Error("Código de invitación no reconocido.");
   }
+  const trimmed = cleaned.slice(idx);
   const body = fromBase64Url(trimmed.slice(PREFIX.length));
   let obj: { p?: unknown; c?: unknown; n?: unknown };
   try {

@@ -363,3 +363,18 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ───────── Print ───────── */
+@media print {
+  @page { margin: 14mm; }
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .no-print { display: none !important; }
+  .print-section { break-inside: avoid; page-break-inside: avoid; }
+  .print-section + .print-section { margin-top: 12mm; }
+  /* Make tables paginate sanely */
+  thead { display: table-header-group; }
+  tr, td, th { page-break-inside: avoid; }
+}

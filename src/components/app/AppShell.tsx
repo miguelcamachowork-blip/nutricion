@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
 import { PWAInstall } from "./PWAInstall";
+import { PrintDialog } from "./PrintDialog";
 
 const NAV = [
   { href: "/dia", label: "Plan del día", icon: ChefHat },
@@ -187,7 +188,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </>
             )}
           </div>
-          <ThemeToggle />
+          <div className="flex w-full items-center justify-center gap-2">
+            <ThemeToggle />
+            <PrintDialog />
+          </div>
         </div>
       </aside>
 
@@ -235,6 +239,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </Select>
           <ThemeToggle />
+          <PrintDialog />
         </div>
       </header>
 

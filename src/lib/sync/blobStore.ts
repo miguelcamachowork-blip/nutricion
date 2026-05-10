@@ -79,19 +79,17 @@ export async function writeSnapshotAndManifest(
 
   // Upload snapshot first so the manifest never points to a missing file.
   await put(snapshotPath(profileId, manifest.version), snapshotBody, {
-    access: "public",
     addRandomSuffix: false,
     contentType: "application/json",
     allowOverwrite: true,
     token,
-  });
+  } as Parameters<typeof put>[2]);
   await put(manifestPath(profileId), manifestBody, {
-    access: "public",
     addRandomSuffix: false,
     contentType: "application/json",
     allowOverwrite: true,
     token,
-  });
+  } as Parameters<typeof put>[2]);
 }
 
 /** Lists snapshot versions stored for a profile (newest first). */

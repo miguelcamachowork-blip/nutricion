@@ -68,6 +68,7 @@ import {
   useAutoBackups,
   type AutoBackupSummary,
 } from "@/lib/storage/autoBackup";
+import { CloudSyncCard } from "@/components/app/CloudSyncCard";
 
 export default function AjustesPage() {
   const profiles = useLiveQuery(() => listProfiles(), []) ?? [];
@@ -207,6 +208,9 @@ export default function AjustesPage() {
           profiles.find((p) => p.id === activeProfileId)?.name ?? null
         }
       />
+
+      {/* Cloud sync (per-profile, manual publish/download) */}
+      <CloudSyncCard />
 
       {/* Session */}
       <Card variant="elevated" className="p-4 sm:p-5">

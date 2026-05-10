@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { countNeedsReview, listProfiles } from "@/lib/db/repos";
 import { useActiveProfileStore } from "@/hooks/useActiveProfile";
+import { useRemoteVersionWatcher } from "@/hooks/useRemoteVersionWatcher";
 import { Select } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import {
@@ -13,6 +14,7 @@ import {
   CalendarDays,
   CalendarPlus,
   ChefHat,
+  CloudDownload,
   ListChecks,
   Settings,
 } from "lucide-react";
@@ -48,6 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       () => (activeProfileId ? countNeedsReview(activeProfileId) : Promise.resolve(0)),
       [activeProfileId],
     ) ?? 0;
+  const sync = useRemoteVersionWatcher(activeProfileId);
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
@@ -146,22 +149,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {activeProfile && (
               <>
                 <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
+                  className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
                   style={{
                     backgroundColor: getProfileAvatarColor(activeProfile.id),
                   }}
                   aria-hidden
                 >
                   {getInitials(activeProfile.name)}
+                  {sync.hasUpdate && (
+                    <span
+                      aria-hidden
+                      title="Hay una nueva versión en la nube"
+                      className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-[var(--card-2)]"
+                    />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {activeProfile.name}
                   </p>
                   <p className="truncate text-[11px] text-[var(--muted-foreground)]">
-                    Perfil activo
+                    {sync.hasUpdate
+                      ? `Nueva versión disponible (v${sync.remoteVersion})`
+                      : "Perfil activo"}
                   </p>
                 </div>
+                {sync.hasUpdate && (
+                  <Link
+                    href="/ajustes"
+                    aria-label="Ir a sincronización"
+                    title="Hay una nueva versión en la nube"
+                    className="shrink-0 rounded-md p-1 text-amber-600 hover:bg-[var(--muted)]"
+                  >
+                    <CloudDownload className="h-4 w-4" />
+                  </Link>
+                )}
               </>
             )}
           </div>
@@ -186,6 +208,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <p className="text-sm font-semibold truncate">Nutrición MCZ</p>
         </div>
         <div className="flex items-center gap-1.5">
+          {sync.hasUpdate && (
+            <Link
+              href="/ajustes"
+              aria-label="Hay una nueva versión en la nube"
+              title="Nueva versión en la nube"
+              className="relative flex h-9 w-9 items-center justify-center rounded-md text-amber-600 hover:bg-[var(--muted)]"
+            >
+              <CloudDownload className="h-5 w-5" />
+              <span
+                aria-hidden
+                className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-amber-500"
+              />
+            </Link>
+          )}
           <Select
             value={activeProfileId ?? ""}
             onChange={(e) => setActive(e.target.value || null)}

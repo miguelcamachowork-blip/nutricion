@@ -412,6 +412,86 @@ function EditorBody({
       ? `Programada · ${formatHumanDate(target.date)}${mealTime ? ` · ${mealTime}` : ""}`
       : `Editor de receta${mealTime ? ` · ${mealTime}` : ""}`;
 
+  // Nueva función: actualizar preparación IA con ingredientes actuales
+  const [updatingPrep, setUpdatingPrep] = useState(false);
+  const updatePreparationWithAI = async () => {
+    setUpdatingPrep(true);
+    try {
+      // Solo usar ingredientes actuales y sus porciones
+      // Construir contexto IA con los ingredientes seleccionados
+      // Solo si todas las porciones están completas
+      if (incompleteGroups.length > 0) {
+        toast.error("Completa todas las porciones antes de actualizar la preparación");
+        setUpdatingPrep(false);
+        return;
+      }
+      // Construir contexto artificial para la IA usando solo los ingredientes actuales
+      // Agrupar ingredientes por grupo
+      const groupMap = new Map(groups.map((g) => [g.id, g]));
+      const itemsByGroup = new Map();
+      for (const it of items) {
+        const f = foodById.get(it.foodId);
+        if (!f) continue;
+        if (!itemsByGroup.has(f.groupId)) itemsByGroup.set(f.groupId, []);
+        itemsByGroup.get(f.groupId).push({
+          ...it,
+          food: f,
+        });
+      }
+      // Solo incluir grupos que tengan porciones planeadas
+      const groupTargets = Array.from(itemsByGroup.entries()).map(([groupId, its]) => {
+        const group = groupMap.get(groupId);
+        if (!group) return null;
+        const planned = planByGroup.get(groupId) ?? 0;
+        return {
+          groupId,
+          groupName: group.label,
+          portions: planned,
+          foods: its.map(({ food, amount }) => {
+            const unit = units.find((u) => u.id === food.unitId);
+            return {
+              id: food.id,
+              name: food.name,
+              portionAmount: food.quantity,
+              unit: unit?.label || "",
+            };
+          }),
+        };
+      }).filter(Boolean);
+      // Preparar contexto IA
+      const context = {
+        meal: { id: mealId, label: mealLabel, time: mealTime },
+        groups,
+        foods,
+        units,
+        plan,
+        forbidden,
+        date: target.kind === "scheduled" ? target.date : undefined,
+        forcedFoodIds: [],
+        freeUseFoods,
+      };
+      // Sobrescribir groupTargets con solo los actuales
+      // (buildMealContext permite sobreescribir groupTargets)
+      const aiContext = {
+        ...buildMealContext(context),
+        groupTargets,
+      };
+      const result = await ai.suggest({ context: aiContext, foods, groups });
+      if (result.preparation && result.preparation.length > 0) {
+        setPreparation(result.preparation);
+        toast.success("Preparación actualizada por IA");
+      } else {
+        toast.error("La IA no devolvió pasos de preparación");
+      }
+    } catch (err) {
+      toast.error("No se pudo generar la preparación", {
+        description: (err as Error).message,
+      });
+    } finally {
+      setUpdatingPrep(false);
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5 sm:px-6 sm:py-6">
       <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 backdrop-blur-md bg-[var(--background)]/80 border-b border-[var(--border)]">
@@ -507,6 +587,18 @@ function EditorBody({
         preparation={preparation}
         onPreparationChange={setPreparation}
       />
+      {/* Botón para actualizar preparación IA con ingredientes actuales */}
+      <div className="flex justify-end mt-2">
+        <Button
+          variant="outline"
+          onClick={updatePreparationWithAI}
+          disabled={updatingPrep || incompleteGroups.length > 0}
+          title={incompleteGroups.length > 0 ? "Completa todas las porciones para habilitar" : "Actualizar preparación con IA"}
+        >
+          <Sparkles className="h-4 w-4 mr-2" />
+          {updatingPrep ? "Actualizando…" : "Actualizar preparación con IA"}
+        </Button>
+      </div>
 
       <div className="space-y-4">
         {visibleGroups.map((g) => (

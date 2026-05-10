@@ -193,3 +193,52 @@ export interface RecipeSnapshot {
   recipes: Pick<Recipe, "mealId" | "items">[];
   createdAt: number;
 }
+
+// ─── Cloud sync (per-profile snapshot) ────────────────────────────────────
+//
+// A `ProfileSnapshot` is the unit uploaded to / downloaded from the cloud
+// store (Vercel Blob). It contains everything needed to materialise the
+// profile on another device: the profile row, its per-profile data, AND the
+// global catalog rows referenced by recipes / plan cells. Local-only data
+// (planSnapshots, recipeSnapshots, autoBackups) is intentionally excluded.
+
+export const PROFILE_SNAPSHOT_KIND = "nutricion-mcz/profile-snapshot" as const;
+export const PROFILE_SNAPSHOT_VERSION = 1 as const;
+
+export interface ProfileSnapshot {
+  kind: typeof PROFILE_SNAPSHOT_KIND;
+  /** Schema version of the snapshot envelope. */
+  version: typeof PROFILE_SNAPSHOT_VERSION;
+  /** Monotonically increasing version of this profile in the cloud store. */
+  snapshotVersion: number;
+  publishedAt: string;
+  /** Optional human-friendly identifier of the editor (e.g. "Juan"). */
+  publishedBy?: string;
+  profile: Profile;
+  meals: Meal[];
+  planCells: PlanCell[];
+  recipes: Recipe[];
+  scheduledRecipes: ScheduledRecipe[];
+  forbiddenItems: ForbiddenItem[];
+  recipeDrafts: RecipeDraft[];
+  /** Global catalog snapshot — applied as upsert on the receiving device. */
+  catalog: {
+    groups: FoodGroup[];
+    foods: Food[];
+    unitTypes: UnitType[];
+    quantityOptions: QuantityOption[];
+    freeUseFoods: FreeUseFood[];
+  };
+}
+
+/** Lightweight metadata stored alongside the snapshot in the cloud store. */
+export interface RemoteManifest {
+  /** Monotonically increasing version of this profile in the cloud. */
+  version: number;
+  publishedAt: string;
+  publishedBy?: string;
+  /** Snapshot payload size in bytes. */
+  size: number;
+  /** SHA-256 (hex) of the family code. Used to gate access. */
+  codeHash: string;
+}

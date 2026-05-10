@@ -1,5 +1,5 @@
 // Service Worker para Nutrición MCZ — PWA instalable + offline básico.
-const CACHE = "nmcz-v1";
+const CACHE = "nmcz-v2";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icon.png"];
 
 self.addEventListener("install", (event) => {

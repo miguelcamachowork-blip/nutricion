@@ -133,8 +133,8 @@ export default function AlimentosPage() {
               groupId={tabId}
               label={groups.find((g) => g.id === tabId)?.label ?? ""}
               note={groups.find((g) => g.id === tabId)?.note}
-              removable={
-                groups.find((g) => g.id === tabId)?.removable ?? false
+              isBuiltIn={
+                !(groups.find((g) => g.id === tabId)?.removable ?? false)
               }
               onDeleted={() => setActiveTab(null)}
             />
@@ -333,13 +333,13 @@ function GroupHeader({
   groupId,
   label,
   note,
-  removable,
+  isBuiltIn,
   onDeleted,
 }: {
   groupId: string;
   label: string;
   note?: string;
-  removable: boolean;
+  isBuiltIn: boolean;
   onDeleted: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -433,17 +433,16 @@ function GroupHeader({
             </div>
           </DialogContent>
         </Dialog>
-        {removable && (
+        {(
           <Button
             size="icon"
             variant="ghost"
             aria-label="Eliminar grupo"
             onClick={async () => {
-              if (
-                confirm(
-                  `Eliminar grupo "${label}"? También se borran sus alimentos y porciones del plan.`,
-                )
-              ) {
+              const warning = isBuiltIn
+                ? `Eliminar grupo "${label}" (predeterminado)? Tú eres responsable: también se borran sus alimentos y porciones del plan, y la app no lo volverá a crear automáticamente.`
+                : `Eliminar grupo "${label}"? También se borran sus alimentos y porciones del plan.`;
+              if (confirm(warning)) {
                 await deleteGroup(groupId);
                 onDeleted();
               }

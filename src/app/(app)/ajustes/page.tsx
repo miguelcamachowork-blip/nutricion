@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -60,14 +60,6 @@ import {
   suggestBackupFilename,
   type SaveResult,
 } from "@/lib/storage/fileIO";
-import {
-  createAutoBackupNow,
-  deleteAutoBackup,
-  getAutoBackupPayload,
-  restoreAutoBackup,
-  useAutoBackups,
-  type AutoBackupSummary,
-} from "@/lib/storage/autoBackup";
 import { CloudSyncCard } from "@/components/app/CloudSyncCard";
 
 export default function AjustesPage() {
@@ -197,13 +189,6 @@ export default function AjustesPage() {
 
       {/* Full backup file (save / restore) */}
       <FullBackupCard
-        activeProfileName={
-          profiles.find((p) => p.id === activeProfileId)?.name ?? null
-        }
-      />
-
-      {/* Auto-backups (rolling, in-app) */}
-      <AutoBackupsCard
         activeProfileName={
           profiles.find((p) => p.id === activeProfileId)?.name ?? null
         }
@@ -791,182 +776,3 @@ function formatUsage(s: StorageStatus | null): string {
 
 // Suppress unused re-export
 void uid;
-
-// ─── Auto-backup card ─────────────────────────────────────────────────────
-
-function AutoBackupsCard({
-  activeProfileName,
-}: {
-  activeProfileName: string | null;
-}) {
-  const backups = useAutoBackups();
-  const [busy, setBusy] = useState<string | "create" | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-
-  async function handleCreate() {
-    setBusy("create");
-    setFeedback(null);
-    try {
-      await createAutoBackupNow();
-      setFeedback("Respaldo automático generado.");
-    } catch (err) {
-      setFeedback((err as Error).message || "No se pudo generar el respaldo.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleDownload(b: AutoBackupSummary) {
-    setBusy(b.id);
-    setFeedback(null);
-    try {
-      const data = await getAutoBackupPayload(b.id);
-      if (!data) throw new Error("Respaldo no encontrado.");
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
-      });
-      const result = await saveBackupFile(blob, {
-        suggestedName: suggestBackupFilename(activeProfileName),
-      });
-      setFeedback(formatSaveResult(result));
-    } catch (err) {
-      setFeedback((err as Error).message || "Error al descargar.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleRestore(b: AutoBackupSummary) {
-    if (
-      !confirm(
-        "Esto reemplazará perfiles, alimentos, plan y recetas con los del respaldo. ¿Continuar?",
-      )
-    )
-      return;
-    setBusy(b.id);
-    setFeedback(null);
-    try {
-      const counts = await restoreAutoBackup(b.id, "replace");
-      setFeedback(
-        `Restaurado: ${counts.profiles} perfiles, ${counts.foods} alimentos, ${counts.recipes} recetas.`,
-      );
-    } catch (err) {
-      setFeedback((err as Error).message || "Error al restaurar.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleDelete(b: AutoBackupSummary) {
-    if (!confirm("¿Eliminar este respaldo automático?")) return;
-    setBusy(b.id);
-    try {
-      await deleteAutoBackup(b.id);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <Card variant="elevated" className="p-4 sm:p-5">
-      <div className="flex items-center gap-2 font-semibold">
-        <Database className="h-4 w-4 text-[var(--primary)]" />
-        Respaldos automáticos
-      </div>
-      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-        La app guarda hasta 7 respaldos diarios dentro del dispositivo. Puedes
-        descargarlos a un archivo o restaurar alguno.
-      </p>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleCreate}
-          disabled={busy !== null}
-        >
-          <Save className="h-4 w-4" />
-          {busy === "create" ? "Generando…" : "Generar ahora"}
-        </Button>
-        <span className="text-xs text-[var(--muted-foreground)]">
-          {backups === undefined
-            ? "Cargando…"
-            : backups.length === 0
-              ? "Aún no hay respaldos."
-              : `Último: ${formatRelative(backups[0].createdAt)}`}
-        </span>
-      </div>
-
-      {backups && backups.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {backups.map((b) => (
-            <li
-              key={b.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card-2)] p-2.5"
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {new Date(b.createdAt).toLocaleString()}
-                </div>
-                <div className="text-[11px] text-[var(--muted-foreground)]">
-                  {formatBytes(b.size)} · {formatRelative(b.createdAt)}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleDownload(b)}
-                  disabled={busy !== null}
-                >
-                  <Download className="h-4 w-4" />
-                  Descargar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleRestore(b)}
-                  disabled={busy !== null}
-                >
-                  <Upload className="h-4 w-4" />
-                  Restaurar
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Eliminar"
-                  className="text-[var(--danger)] hover:bg-[var(--danger-soft)]"
-                  onClick={() => handleDelete(b)}
-                  disabled={busy !== null}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {feedback && (
-        <p className="mt-3 text-xs text-[var(--muted-foreground)]">{feedback}</p>
-      )}
-    </Card>
-  );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.round(diff / 60000);
-  if (m < 1) return "ahora";
-  if (m < 60) return `hace ${m} min`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `hace ${h} h`;
-  const d = Math.round(h / 24);
-  return `hace ${d} d`;
-}

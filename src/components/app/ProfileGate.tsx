@@ -21,16 +21,12 @@ import {
 import { ChevronRight, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { getProfileAvatarColor, getInitials } from "@/lib/ui/groupColor";
 import { requestPersistentStorage } from "@/lib/storage/persist";
-import { useAutoBackup } from "@/lib/storage/autoBackup";
 
 export function ProfileGate({ children }: { children: React.ReactNode }) {
   const profiles = useLiveQuery(() => listProfiles(), []);
   const { activeProfileId, setActive } = useActiveProfileStore();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-
-  // Daily rolling auto-backup (kept inside IndexedDB).
-  useAutoBackup();
 
   // Make sure the global catalog (groups/foods/units/quantities/free-use)
   // is seeded even before the first profile is created.

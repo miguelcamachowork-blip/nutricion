@@ -278,6 +278,18 @@ button {
   color: inherit;
 }
 
+/* iOS / iPadOS: prevent the auto-zoom-on-focus that, in standalone PWAs,
+   can blur the field immediately and stop the soft keyboard from showing.
+   Forcing >=16px font-size on form controls disables that auto-zoom.
+   Targets WebKit only via the -webkit-touch-callout media feature. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 ::selection {
   background: color-mix(in oklab, var(--primary) 28%, transparent);
   color: var(--foreground);

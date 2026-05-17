@@ -56,6 +56,7 @@ export function PrintDialog({ children }: PrintDialogProps) {
   const [from, setFrom] = useState<string>(today);
   const [to, setTo] = useState<string>(addDays(today, 6));
   const [day, setDay] = useState<string>(today);
+  const [includePreparation, setIncludePreparation] = useState(true);
 
   function toggle(key: PrintSection) {
     setSel((s) => ({ ...s, [key]: !s[key] }));
@@ -75,6 +76,9 @@ export function PrintDialog({ children }: PrintDialogProps) {
     }
     if (sel.dia) {
       params.set("day", day);
+    }
+    if (!includePreparation && (sel.dia || sel.recetas)) {
+      params.set("prep", "0");
     }
     setOpen(false);
     router.push(`/imprimir?${params.toString()}`);
@@ -167,6 +171,18 @@ export function PrintDialog({ children }: PrintDialogProps) {
                 />
               </label>
             </Card>
+          )}
+
+          {(sel.dia || sel.recetas) && (
+            <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card-2)] px-3 py-2 text-sm hover:bg-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={includePreparation}
+                onChange={(e) => setIncludePreparation(e.target.checked)}
+                className="h-4 w-4 accent-[var(--primary)]"
+              />
+              <span>Incluir modo de preparación</span>
+            </label>
           )}
 
           <div className="flex justify-end gap-2 pt-1">

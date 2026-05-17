@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import {
@@ -25,7 +26,7 @@ import {
   formatPortion,
   recipePortionsByGroup,
 } from "@/lib/balance";
-import { Ban, ChefHat, Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { Ban, ChefHat, Clock, Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
 import { getGroupColor } from "@/lib/ui/groupColor";
 import type { Food, FoodGroup, Recipe, ScheduledRecipe } from "@/lib/types";
 
@@ -230,6 +231,7 @@ function MealCard({
   /** Page-wide map of `groupId → footnote number` (1-based). */
   footnoteIndex: Map<string, number>;
 }) {
+  const [showPreparation, setShowPreparation] = useState(true);
   const aported = recipe
     ? recipePortionsByGroup(recipe, foodById)
     : new Map<string, number>();
@@ -354,7 +356,7 @@ function MealCard({
         <div className="border-t border-[var(--border)]">
           <div
             className={
-              recipe.preparation && recipe.preparation.length > 0
+              recipe.preparation && recipe.preparation.length > 0 && showPreparation
                 ? "grid gap-0 lg:grid-cols-[2fr_1fr] lg:divide-x lg:divide-[var(--border)]"
                 : undefined
             }
@@ -443,19 +445,37 @@ function MealCard({
             </div>
             {recipe.preparation && recipe.preparation.length > 0 && (
               <aside className="border-t border-[var(--border)] px-4 py-3 sm:px-5 lg:border-t-0">
-                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Preparación
-                </p>
-                <ol className="space-y-1.5 text-sm text-[var(--foreground-soft)]">
-                  {recipe.preparation.map((step, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="shrink-0 font-medium tabular-nums text-[var(--primary)]">
-                        {i + 1}.
-                      </span>
-                      <span className="whitespace-pre-wrap">{step}</span>
-                    </li>
-                  ))}
-                </ol>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                    Preparación
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowPreparation((v) => !v)}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] hover:bg-[var(--muted)]"
+                    aria-label={showPreparation ? "Ocultar preparación" : "Mostrar preparación"}
+                    title={showPreparation ? "Ocultar preparación" : "Mostrar preparación"}
+                  >
+                    {showPreparation ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                    {showPreparation ? "Ocultar" : "Mostrar"}
+                  </button>
+                </div>
+                {showPreparation && (
+                  <ol className="space-y-1.5 text-sm text-[var(--foreground-soft)]">
+                    {recipe.preparation.map((step, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="shrink-0 font-medium tabular-nums text-[var(--primary)]">
+                          {i + 1}.
+                        </span>
+                        <span className="whitespace-pre-wrap">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </aside>
             )}
           </div>

@@ -366,14 +366,23 @@ textarea {
 
 /* ───────── Print ───────── */
 @media print {
-  @page { margin: 14mm; }
+  @page { size: letter; margin: 12mm 14mm; }
   html, body {
     background: #fff !important;
-    color: #000 !important;
   }
   .no-print { display: none !important; }
-  .print-section { break-inside: avoid; page-break-inside: avoid; }
-  .print-section + .print-section { margin-top: 12mm; }
+  .print-doc {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-doc * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-section { break-inside: avoid-page; page-break-inside: avoid; }
+  .print-section + .print-section { margin-top: 8mm; page-break-before: auto; }
+  .print-break-before { page-break-before: always; break-before: page; }
   /* Make tables paginate sanely */
   thead { display: table-header-group; }
   tr, td, th { page-break-inside: avoid; }

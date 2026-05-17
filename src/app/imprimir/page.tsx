@@ -43,6 +43,34 @@ function isSection(v: string): v is Section {
   return (SECTION_KEYS as readonly string[]).includes(v);
 }
 
+// Print-safe pastel palette. Same hash as `getGroupColor` so colors stay
+// consistent with the on-screen UI — but uses fixed hex tones that print
+// reliably (no CSS variables, no dark theme dependency).
+const PRINT_PALETTE: { bg: string; border: string; ink: string }[] = [
+  { bg: "#fef3c7", border: "#f59e0b", ink: "#78350f" }, // amber
+  { bg: "#dbeafe", border: "#3b82f6", ink: "#1e3a8a" }, // blue
+  { bg: "#dcfce7", border: "#22c55e", ink: "#14532d" }, // green
+  { bg: "#fce7f3", border: "#ec4899", ink: "#831843" }, // pink
+  { bg: "#ede9fe", border: "#8b5cf6", ink: "#4c1d95" }, // violet
+  { bg: "#ffedd5", border: "#f97316", ink: "#7c2d12" }, // orange
+  { bg: "#cffafe", border: "#06b6d4", ink: "#164e63" }, // cyan
+  { bg: "#fee2e2", border: "#ef4444", ink: "#7f1d1d" }, // red
+  { bg: "#e0e7ff", border: "#6366f1", ink: "#312e81" }, // indigo
+  { bg: "#ecfccb", border: "#84cc16", ink: "#365314" }, // lime
+];
+
+function hashStr(str: string): number {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 33) ^ str.charCodeAt(i);
+  }
+  return h >>> 0;
+}
+
+function printColor(id: string) {
+  return PRINT_PALETTE[hashStr(id) % PRINT_PALETTE.length];
+}
+
 function formatDateLong(iso: string): string {
   try {
     return new Date(iso + "T00:00:00").toLocaleDateString("es-MX", {
@@ -80,6 +108,7 @@ function PrintShell() {
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const day = params.get("day") ?? "";
+  const includePrep = params.get("prep") !== "0";
 
   const profiles = useLiveQuery(() => listProfiles(), []);
   const profile = profiles?.find((p) => p.id === profileId);
@@ -152,18 +181,23 @@ function PrintShell() {
   }
 
   return (
-    <main className="print-doc mx-auto max-w-[210mm] bg-white px-6 py-6 text-[12px] leading-snug text-black">
+    <main className="print-doc mx-auto w-full max-w-[216mm] bg-white px-8 py-6 text-[11.5px] leading-snug text-slate-900">
       <PrintToolbar />
-      <header className="mb-4 border-b border-black/40 pb-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-xl font-bold">Nutrición MCZ</h1>
-          <div className="text-xs">
-            Generado: {new Date().toLocaleString("es-MX")}
+      <header className="mb-5 overflow-hidden rounded-lg" style={{ background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)" }}>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 text-white">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">Nutrición MCZ</h1>
+            <p className="mt-0.5 text-[12px] opacity-95">
+              Perfil: <span className="font-semibold">{profile.name}</span>
+            </p>
+          </div>
+          <div className="text-right text-[10px] uppercase tracking-wide opacity-90">
+            <div>Generado</div>
+            <div className="text-[11px] font-medium normal-case tracking-normal">
+              {new Date().toLocaleString("es-MX")}
+            </div>
           </div>
         </div>
-        <p className="mt-1 text-sm">
-          Perfil: <b>{profile.name}</b>
-        </p>
       </header>
 
       {sections.includes("plan") && (
@@ -184,6 +218,7 @@ function PrintShell() {
           plan={plan!}
           recipes={recipes!}
           scheduled={scheduled!}
+          includePreparation={includePrep}
         />
       )}
 
@@ -198,6 +233,7 @@ function PrintShell() {
           scheduled={scheduled!.filter(
             (r) => (!from || r.date >= from) && (!to || r.date <= to),
           )}
+          includePreparation={includePrep}
         />
       )}
 
@@ -253,21 +289,22 @@ function PlanSection({
   const sortedMeals = [...meals].sort((a, b) => a.order - b.order);
   return (
     <section className="print-section">
-      <h2 className="mb-2 text-base font-bold">Plan (porciones por comida)</h2>
+      <SectionTitle accent="#2563eb">Plan · porciones por comida</SectionTitle>
       <table className="w-full border-collapse text-[11px]">
         <thead>
           <tr>
-            <th className="border border-black/40 bg-black/5 px-2 py-1 text-left">
+            <th className="border border-slate-300 px-2 py-1.5 text-left text-white" style={{ backgroundColor: "#1e3a8a" }}>
               Grupo
             </th>
             {sortedMeals.map((m) => (
               <th
                 key={m.id}
-                className="border border-black/40 bg-black/5 px-2 py-1 text-center"
+                className="border border-slate-300 px-2 py-1.5 text-center text-white"
+                style={{ backgroundColor: "#2563eb" }}
               >
-                {m.label}
+                <div>{m.label}</div>
                 {m.time && (
-                  <div className="text-[10px] font-normal opacity-70">
+                  <div className="text-[10px] font-normal opacity-90">
                     {m.time}
                   </div>
                 )}
@@ -276,22 +313,35 @@ function PlanSection({
           </tr>
         </thead>
         <tbody>
-          {sortedGroups.map((g) => (
-            <tr key={g.id}>
-              <td className="border border-black/40 px-2 py-1">{g.label}</td>
-              {sortedMeals.map((m) => {
-                const v = cell.get(`${m.id}::${g.id}`) ?? 0;
-                return (
-                  <td
-                    key={m.id}
-                    className="border border-black/40 px-2 py-1 text-center tabular-nums"
-                  >
-                    {v ? formatPortion(v) : "—"}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {sortedGroups.map((g, rowIdx) => {
+            const c = printColor(g.id);
+            return (
+              <tr key={g.id} style={{ backgroundColor: rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                <td className="border border-slate-300 px-2 py-1 font-medium">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: c.border }}
+                    />
+                    {g.label}
+                  </span>
+                </td>
+                {sortedMeals.map((m) => {
+                  const v = cell.get(`${m.id}::${g.id}`) ?? 0;
+                  return (
+                    <td
+                      key={m.id}
+                      className="border border-slate-300 px-2 py-1 text-center tabular-nums"
+                      style={v ? { backgroundColor: c.bg, color: c.ink, fontWeight: 600 } : undefined}
+                    >
+                      {v ? formatPortion(v) : <span className="text-slate-400">—</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>
@@ -309,6 +359,7 @@ function DiaSection({
   plan,
   recipes,
   scheduled,
+  includePreparation,
 }: {
   date: string;
   meals: Meal[];
@@ -318,6 +369,7 @@ function DiaSection({
   plan: PlanCell[];
   recipes: Recipe[];
   scheduled: ScheduledRecipe[];
+  includePreparation: boolean;
 }) {
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const unitById = new Map(units.map((u) => [u.id, u]));
@@ -332,72 +384,95 @@ function DiaSection({
   const sortedMeals = [...meals].sort((a, b) => a.order - b.order);
   return (
     <section className="print-section">
-      <h2 className="mb-2 text-base font-bold">Plan del día</h2>
-      <p className="mb-3 text-xs">
-        Fecha: <b>{formatDateLong(date)}</b>
-      </p>
-      <div className="space-y-3">
+      <SectionTitle accent="#16a34a">
+        Plan del día
+        <span className="ml-2 text-[12px] font-normal text-slate-500">
+          · {formatDateLong(date)}
+        </span>
+      </SectionTitle>
+      <div className="space-y-2.5">
         {sortedMeals.map((m) => {
           const r = schedByMeal.get(m.id) ?? tplByMeal.get(m.id);
           const source = schedByMeal.get(m.id) ? "calendario" : "plantilla";
+          const accent = printColor(m.id);
           return (
             <div
               key={m.id}
-              className="break-inside-avoid border border-black/40 p-2"
+              className="break-inside-avoid overflow-hidden rounded-md border border-slate-300"
+              style={{ borderLeft: `4px solid ${accent.border}` }}
             >
-              <div className="mb-1 flex items-baseline justify-between">
-                <h3 className="text-sm font-semibold">
+              <div
+                className="flex items-baseline justify-between gap-2 px-3 py-1.5"
+                style={{ backgroundColor: accent.bg, color: accent.ink }}
+              >
+                <h3 className="text-[13px] font-semibold">
                   {m.label}
                   {m.time && (
-                    <span className="ml-2 text-[11px] font-normal opacity-70">
+                    <span className="ml-2 text-[11px] font-normal opacity-80">
                       {m.time}
+                    </span>
+                  )}
+                  {r?.title && (
+                    <span className="ml-2 text-[11px] font-normal italic opacity-90">
+                      · {r.title}
                     </span>
                   )}
                 </h3>
                 {r && (
-                  <span className="text-[10px] uppercase opacity-70">
+                  <span className="rounded-sm bg-white/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide">
                     {source}
                   </span>
                 )}
               </div>
-              {r?.title && (
-                <p className="mb-1 text-xs italic">{r.title}</p>
-              )}
-              {!r ? (
-                <p className="text-xs opacity-70">Sin receta para esta comida.</p>
-              ) : (
-                <RecipeItemsTable
-                  items={r.items}
-                  foodById={foodById}
-                  unitById={unitById}
-                  groupById={groupById}
-                />
-              )}
-              {r && "preparation" in r && r.preparation && r.preparation.length > 0 && (
-                <ol className="ml-5 mt-2 list-decimal space-y-0.5 text-[11px]">
-                  {r.preparation.map((step, i) => (
-                    <li key={i}>{step}</li>
-                  ))}
-                </ol>
-              )}
+              <div className="px-3 py-2">
+                {!r ? (
+                  <p className="text-[11px] italic text-slate-500">
+                    Sin receta para esta comida.
+                  </p>
+                ) : (
+                  <RecipeItemsTable
+                    items={r.items}
+                    foodById={foodById}
+                    unitById={unitById}
+                    groupById={groupById}
+                  />
+                )}
+                {includePreparation &&
+                  r &&
+                  "preparation" in r &&
+                  r.preparation &&
+                  r.preparation.length > 0 && (
+                    <div className="mt-2 rounded-sm border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                      <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        Preparación
+                      </div>
+                      <ol className="ml-4 list-decimal space-y-0.5 text-[10.5px] text-slate-700">
+                        {r.preparation.map((step, i) => (
+                          <li key={i}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+              </div>
             </div>
           );
         })}
       </div>
-      <div className="mt-3">
-        <h3 className="mb-1 text-xs font-semibold uppercase">
+      <div className="mt-4">
+        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
           Porciones recomendadas del día
         </h3>
-        <table className="w-full border-collapse text-[11px]">
+        <table className="w-full border-collapse text-[10.5px]">
           <thead>
             <tr>
-              <th className="border border-black/40 bg-black/5 px-2 py-1 text-left">
+              <th className="border border-slate-300 px-2 py-1 text-left text-white" style={{ backgroundColor: "#166534" }}>
                 Grupo
               </th>
               {sortedMeals.map((m) => (
                 <th
                   key={m.id}
-                  className="border border-black/40 bg-black/5 px-2 py-1 text-center"
+                  className="border border-slate-300 px-2 py-1 text-center text-white"
+                  style={{ backgroundColor: "#16a34a" }}
                 >
                   {m.label}
                 </th>
@@ -407,24 +482,31 @@ function DiaSection({
           <tbody>
             {[...groups]
               .sort((a, b) => a.order - b.order)
-              .map((g) => (
-                <tr key={g.id}>
-                  <td className="border border-black/40 px-2 py-1">
-                    {g.label}
-                  </td>
-                  {sortedMeals.map((m) => {
-                    const v = planByCell.get(`${m.id}::${g.id}`) ?? 0;
-                    return (
-                      <td
-                        key={m.id}
-                        className="border border-black/40 px-2 py-1 text-center tabular-nums"
-                      >
-                        {v ? formatPortion(v) : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              .map((g, rowIdx) => {
+                const c = printColor(g.id);
+                return (
+                  <tr key={g.id} style={{ backgroundColor: rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                    <td className="border border-slate-300 px-2 py-1 font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: c.border }} />
+                        {g.label}
+                      </span>
+                    </td>
+                    {sortedMeals.map((m) => {
+                      const v = planByCell.get(`${m.id}::${g.id}`) ?? 0;
+                      return (
+                        <td
+                          key={m.id}
+                          className="border border-slate-300 px-2 py-1 text-center tabular-nums"
+                          style={v ? { backgroundColor: c.bg, color: c.ink, fontWeight: 600 } : undefined}
+                        >
+                          {v ? formatPortion(v) : <span className="text-slate-400">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>
@@ -442,6 +524,7 @@ function RecetasSection({
   foods,
   units,
   scheduled,
+  includePreparation,
 }: {
   from: string;
   to: string;
@@ -450,6 +533,7 @@ function RecetasSection({
   foods: Food[];
   units: UnitType[];
   scheduled: ScheduledRecipe[];
+  includePreparation: boolean;
 }) {
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const unitById = new Map(units.map((u) => [u.id, u]));
@@ -474,63 +558,84 @@ function RecetasSection({
 
   return (
     <section className="print-section">
-      <h2 className="mb-2 text-base font-bold">Recetas calendarizadas</h2>
-      <p className="mb-3 text-xs">
-        Rango: <b>{from || "—"}</b> a <b>{to || "—"}</b>
-      </p>
+      <SectionTitle accent="#db2777">
+        Recetas calendarizadas
+        <span className="ml-2 text-[12px] font-normal text-slate-500">
+          · {from || "—"} a {to || "—"}
+        </span>
+      </SectionTitle>
       {dates.length === 0 ? (
-        <p className="text-xs opacity-70">
+        <p className="text-[11px] italic text-slate-500">
           No hay recetas calendarizadas en este rango.
         </p>
       ) : (
         <div className="space-y-3">
           {dates.map((d) => (
             <div key={d} className="break-inside-avoid">
-              <h3 className="border-b border-black/40 pb-0.5 text-sm font-semibold">
+              <h3
+                className="mb-1.5 rounded-sm px-2 py-1 text-[12px] font-semibold text-white"
+                style={{ backgroundColor: "#db2777" }}
+              >
                 {formatDateLong(d)}
               </h3>
-              <div className="mt-2 space-y-2">
+              <div className="space-y-2">
                 {byDate.get(d)!.map((r) => {
                   const meal = mealById.get(r.mealId);
+                  const accent = printColor(r.mealId);
                   return (
                     <div
                       key={r.id}
-                      className="break-inside-avoid border border-black/30 p-2"
+                      className="break-inside-avoid overflow-hidden rounded-md border border-slate-300"
+                      style={{ borderLeft: `4px solid ${accent.border}` }}
                     >
-                      <div className="mb-1 flex items-baseline justify-between gap-2">
-                        <div className="text-sm font-medium">
+                      <div
+                        className="flex items-baseline justify-between gap-2 px-3 py-1.5"
+                        style={{ backgroundColor: accent.bg, color: accent.ink }}
+                      >
+                        <div className="text-[12px] font-semibold">
                           {meal?.label ?? "—"}
                           {meal?.time && (
-                            <span className="ml-2 text-[11px] font-normal opacity-70">
+                            <span className="ml-2 text-[10.5px] font-normal opacity-80">
                               {meal.time}
                             </span>
                           )}
+                          {r.title && (
+                            <span className="ml-2 text-[10.5px] font-normal italic opacity-90">
+                              · {r.title}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[10px] uppercase opacity-70">
+                        <span className="rounded-sm bg-white/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide">
                           {r.source}
-                        </div>
+                        </span>
                       </div>
-                      {r.title && (
-                        <p className="mb-1 text-xs italic">{r.title}</p>
-                      )}
-                      <RecipeItemsTable
-                        items={r.items}
-                        foodById={foodById}
-                        unitById={unitById}
-                        groupById={groupById}
-                      />
-                      {r.preparation && r.preparation.length > 0 && (
-                        <ol className="ml-5 mt-2 list-decimal space-y-0.5 text-[11px]">
-                          {r.preparation.map((step, i) => (
-                            <li key={i}>{step}</li>
-                          ))}
-                        </ol>
-                      )}
-                      {r.notes && (
-                        <p className="mt-1 text-[11px] italic opacity-80">
-                          Nota: {r.notes}
-                        </p>
-                      )}
+                      <div className="px-3 py-2">
+                        <RecipeItemsTable
+                          items={r.items}
+                          foodById={foodById}
+                          unitById={unitById}
+                          groupById={groupById}
+                        />
+                        {includePreparation &&
+                          r.preparation &&
+                          r.preparation.length > 0 && (
+                            <div className="mt-2 rounded-sm border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                              <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                                Preparación
+                              </div>
+                              <ol className="ml-4 list-decimal space-y-0.5 text-[10.5px] text-slate-700">
+                                {r.preparation.map((step, i) => (
+                                  <li key={i}>{step}</li>
+                                ))}
+                              </ol>
+                            </div>
+                          )}
+                        {r.notes && (
+                          <p className="mt-1.5 text-[10.5px] italic text-slate-600">
+                            Nota: {r.notes}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -555,26 +660,16 @@ function RecipeItemsTable({
   groupById: Map<string, FoodGroup>;
 }) {
   if (items.length === 0)
-    return <p className="text-[11px] opacity-70">Sin ingredientes.</p>;
+    return <p className="text-[10.5px] italic text-slate-500">Sin ingredientes.</p>;
   return (
-    <table className="w-full border-collapse text-[11px]">
+    <table className="w-full border-collapse text-[10.5px]">
       <thead>
-        <tr>
-          <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-left">
-            Grupo
-          </th>
-          <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-left">
-            Alimento
-          </th>
-          <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-right">
-            Cant.
-          </th>
-          <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-left">
-            Unidad
-          </th>
-          <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-right">
-            Porc.
-          </th>
+        <tr className="text-white" style={{ backgroundColor: "#475569" }}>
+          <th className="border border-slate-300 px-1.5 py-1 text-left font-medium">Grupo</th>
+          <th className="border border-slate-300 px-1.5 py-1 text-left font-medium">Alimento</th>
+          <th className="border border-slate-300 px-1.5 py-1 text-right font-medium">Cant.</th>
+          <th className="border border-slate-300 px-1.5 py-1 text-left font-medium">Unidad</th>
+          <th className="border border-slate-300 px-1.5 py-1 text-right font-medium">Porc.</th>
         </tr>
       </thead>
       <tbody>
@@ -583,23 +678,26 @@ function RecipeItemsTable({
           const u = f ? unitById.get(f.unitId) : undefined;
           const g = f ? groupById.get(f.groupId) : undefined;
           const porciones = f ? amountToPortions(it.amount, f) : 0;
+          const c = g ? printColor(g.id) : null;
           return (
-            <tr key={i}>
-              <td className="border border-black/30 px-1.5 py-0.5">
-                {g?.label ?? "—"}
+            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+              <td className="border border-slate-200 px-1.5 py-0.5">
+                {c ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9.5px] font-medium"
+                    style={{ backgroundColor: c.bg, color: c.ink }}
+                  >
+                    <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: c.border }} />
+                    {g?.label ?? "—"}
+                  </span>
+                ) : (
+                  <span className="text-slate-500">—</span>
+                )}
               </td>
-              <td className="border border-black/30 px-1.5 py-0.5">
-                {f?.name ?? "—"}
-              </td>
-              <td className="border border-black/30 px-1.5 py-0.5 text-right tabular-nums">
-                {formatPortion(it.amount)}
-              </td>
-              <td className="border border-black/30 px-1.5 py-0.5">
-                {u?.label ?? ""}
-              </td>
-              <td className="border border-black/30 px-1.5 py-0.5 text-right tabular-nums">
-                {formatPortion(porciones)}
-              </td>
+              <td className="border border-slate-200 px-1.5 py-0.5 font-medium">{f?.name ?? "—"}</td>
+              <td className="border border-slate-200 px-1.5 py-0.5 text-right tabular-nums">{formatPortion(it.amount)}</td>
+              <td className="border border-slate-200 px-1.5 py-0.5 text-slate-600">{u?.label ?? ""}</td>
+              <td className="border border-slate-200 px-1.5 py-0.5 text-right tabular-nums font-semibold text-slate-700">{formatPortion(porciones)}</td>
             </tr>
           );
         })}
@@ -623,48 +721,41 @@ function AlimentosSection({
   const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
   return (
     <section className="print-section">
-      <h2 className="mb-2 text-base font-bold">Tabla de alimentos</h2>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <SectionTitle accent="#7c3aed">Tabla de alimentos</SectionTitle>
+      <div className="grid grid-cols-2 gap-3">
         {sortedGroups.map((g) => {
           const inGroup = foods
             .filter((f) => f.groupId === g.id)
             .slice()
             .sort((a, b) => compareNames(a.name, b.name));
           if (inGroup.length === 0) return null;
+          const c = printColor(g.id);
           return (
-            <div key={g.id} className="break-inside-avoid">
-              <h3 className="border-b border-black/40 pb-0.5 text-sm font-semibold">
-                {g.label}
-              </h3>
-              {g.note && (
-                <p className="mb-1 text-[10px] italic opacity-80">{g.note}</p>
-              )}
-              <table className="w-full border-collapse text-[11px]">
+            <div
+              key={g.id}
+              className="break-inside-avoid overflow-hidden rounded-md border border-slate-300"
+              style={{ borderTop: `3px solid ${c.border}` }}
+            >
+              <div className="px-2 py-1" style={{ backgroundColor: c.bg, color: c.ink }}>
+                <h3 className="text-[12px] font-semibold">{g.label}</h3>
+                {g.note && (
+                  <p className="text-[9.5px] italic opacity-80">{g.note}</p>
+                )}
+              </div>
+              <table className="w-full border-collapse text-[10.5px]">
                 <thead>
-                  <tr>
-                    <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-left">
-                      Alimento
-                    </th>
-                    <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-right">
-                      1 porción
-                    </th>
-                    <th className="border border-black/30 bg-black/5 px-1.5 py-0.5 text-left">
-                      Unidad
-                    </th>
+                  <tr className="text-slate-600" style={{ backgroundColor: "#f1f5f9" }}>
+                    <th className="border-b border-slate-300 px-1.5 py-0.5 text-left font-medium">Alimento</th>
+                    <th className="border-b border-slate-300 px-1.5 py-0.5 text-right font-medium">1 porción</th>
+                    <th className="border-b border-slate-300 px-1.5 py-0.5 text-left font-medium">Unidad</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {inGroup.map((f) => (
-                    <tr key={f.id}>
-                      <td className="border border-black/30 px-1.5 py-0.5">
-                        {f.name}
-                      </td>
-                      <td className="border border-black/30 px-1.5 py-0.5 text-right tabular-nums">
-                        {formatPortion(f.quantity)}
-                      </td>
-                      <td className="border border-black/30 px-1.5 py-0.5">
-                        {unitById.get(f.unitId)?.label ?? ""}
-                      </td>
+                  {inGroup.map((f, i) => (
+                    <tr key={f.id} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                      <td className="border-b border-slate-100 px-1.5 py-0.5">{f.name}</td>
+                      <td className="border-b border-slate-100 px-1.5 py-0.5 text-right tabular-nums">{formatPortion(f.quantity)}</td>
+                      <td className="border-b border-slate-100 px-1.5 py-0.5 text-slate-600">{unitById.get(f.unitId)?.label ?? ""}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -674,5 +765,24 @@ function AlimentosSection({
         })}
       </div>
     </section>
+  );
+}
+
+// ─── Shared section title ────────────────────────────────────────────────
+
+function SectionTitle({
+  accent,
+  children,
+}: {
+  accent: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <h2
+      className="mb-2.5 flex items-center gap-2 pl-2.5 text-[15px] font-bold text-slate-800"
+      style={{ borderLeft: `4px solid ${accent}` }}
+    >
+      {children}
+    </h2>
   );
 }

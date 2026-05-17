@@ -57,6 +57,9 @@ export function PrintDialog({ children }: PrintDialogProps) {
   const [to, setTo] = useState<string>(addDays(today, 6));
   const [day, setDay] = useState<string>(today);
   const [includePreparation, setIncludePreparation] = useState(true);
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">(
+    "portrait",
+  );
 
   function toggle(key: PrintSection) {
     setSel((s) => ({ ...s, [key]: !s[key] }));
@@ -79,6 +82,9 @@ export function PrintDialog({ children }: PrintDialogProps) {
     }
     if (!includePreparation && (sel.dia || sel.recetas)) {
       params.set("prep", "0");
+    }
+    if (orientation === "landscape") {
+      params.set("orient", "h");
     }
     setOpen(false);
     router.push(`/imprimir?${params.toString()}`);
@@ -184,6 +190,37 @@ export function PrintDialog({ children }: PrintDialogProps) {
               <span>Incluir modo de preparación</span>
             </label>
           )}
+
+          <fieldset>
+            <legend className="mb-1.5 text-xs uppercase tracking-wide text-[var(--muted-foreground)]">
+              Orientación
+            </legend>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: "portrait", label: "Vertical" },
+                { value: "landscape", label: "Horizontal" },
+              ] as const).map((opt) => (
+                <label
+                  key={opt.value}
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-[var(--radius)] border px-3 py-2 text-sm ${
+                    orientation === opt.value
+                      ? "border-[var(--primary)] bg-[var(--primary)]/10 font-medium"
+                      : "border-[var(--border)] bg-[var(--card-2)] hover:bg-[var(--muted)]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="orientation"
+                    value={opt.value}
+                    checked={orientation === opt.value}
+                    onChange={() => setOrientation(opt.value)}
+                    className="sr-only"
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={() => setOpen(false)}>

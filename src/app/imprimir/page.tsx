@@ -109,6 +109,7 @@ function PrintShell() {
   const to = params.get("to") ?? "";
   const day = params.get("day") ?? "";
   const includePrep = params.get("prep") !== "0";
+  const landscape = params.get("orient") === "h";
 
   const profiles = useLiveQuery(() => listProfiles(), []);
   const profile = profiles?.find((p) => p.id === profileId);
@@ -181,7 +182,11 @@ function PrintShell() {
   }
 
   return (
-    <main className="print-doc mx-auto w-full max-w-[216mm] bg-white px-8 py-6 text-[11.5px] leading-snug text-slate-900">
+    <main
+      className={`print-doc mx-auto w-full ${landscape ? "max-w-[279mm]" : "max-w-[216mm]"} bg-white px-8 py-6 text-[11.5px] leading-snug text-slate-900`}
+    >
+      {/* Override @page to honor user-chosen orientation. */}
+      <style>{`@page { size: letter ${landscape ? "landscape" : "portrait"}; margin: ${landscape ? "10mm 12mm" : "12mm 14mm"}; }`}</style>
       <PrintToolbar />
       <header className="mb-5 overflow-hidden rounded-lg" style={{ background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 text-white">
@@ -242,6 +247,7 @@ function PrintShell() {
           groups={groups!}
           foods={foods!}
           units={units!}
+          landscape={landscape}
         />
       )}
     </main>
@@ -712,17 +718,19 @@ function AlimentosSection({
   groups,
   foods,
   units,
+  landscape,
 }: {
   groups: FoodGroup[];
   foods: Food[];
   units: UnitType[];
+  landscape: boolean;
 }) {
   const unitById = new Map(units.map((u) => [u.id, u]));
   const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
   return (
     <section className="print-section">
       <SectionTitle accent="#7c3aed">Tabla de alimentos</SectionTitle>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${landscape ? "grid-cols-3" : "grid-cols-2"}`}>
         {sortedGroups.map((g) => {
           const inGroup = foods
             .filter((f) => f.groupId === g.id)

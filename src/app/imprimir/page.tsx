@@ -316,11 +316,21 @@ function PlanSection({
                 )}
               </th>
             ))}
+            <th
+              className="border border-slate-300 px-2 py-1.5 text-center text-white"
+              style={{ backgroundColor: "#1e3a8a" }}
+            >
+              Total
+            </th>
           </tr>
         </thead>
         <tbody>
           {sortedGroups.map((g, rowIdx) => {
             const c = printColor(g.id);
+            const rowTotal = sortedMeals.reduce(
+              (sum, m) => sum + (cell.get(`${m.id}::${g.id}`) ?? 0),
+              0,
+            );
             return (
               <tr key={g.id} style={{ backgroundColor: rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
                 <td className="border border-slate-300 px-2 py-1 font-medium">
@@ -345,6 +355,12 @@ function PlanSection({
                     </td>
                   );
                 })}
+                <td
+                  className="border border-slate-300 px-2 py-1 text-center font-bold tabular-nums"
+                  style={rowTotal ? { backgroundColor: c.border, color: "#ffffff" } : undefined}
+                >
+                  {rowTotal ? formatPortion(rowTotal) : <span className="text-slate-400">—</span>}
+                </td>
               </tr>
             );
           })}
